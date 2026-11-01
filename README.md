@@ -12,9 +12,18 @@ installs like an app, and keeps working offline.
 
 - Stock counted in pieces, with optional **packet** and **carton** sizes
   (e.g. 1 packet = 12 pcs, 1 carton = 6 packets). Enter and view stock as cartons + packets + pieces.
-- **New arrival** button: record a delivery of one or more items in cartons, packets or pieces, with supplier and invoice note
-- **Use / consume** button: record what was used, pieces first (or whole packets/cartons), several items at once
-- Issue (to an outlet) and Breakage (with reason) per item, quick − / + count fixes, **Undo**
+- **Stock in / Stock out screen** — works like a shopping list:
+  scan or search items, enter cartons / packets / pieces for each, then save everything at once.
+  Stock out has three types: **Use** (consumed), **Issue** (to an outlet/event), **Breakage** (with reason).
+  Supplier / outlet / reason picked from the Admin lists. **Undo** after saving.
+- **Barcode scanning**
+  - **Phone camera:** tap *Scan*, keep scanning items one after another (beep + vibrate on each).
+    Works in Chrome, Edge and Safari (iPhone) over HTTPS — Vercel gives you HTTPS automatically.
+  - **Handheld USB / Bluetooth scanners** work too — just scan; no need to tap anything.
+  - Each item can have 3 barcodes: **piece**, **packet** and **carton**. Scanning a carton barcode adds 1 whole carton.
+  - **Unknown barcode?** Create a new item with it, or link it to an existing item — without losing your list.
+  - Scan on the main screen (or type a barcode in search) to jump straight to that item.
+- Quick − / + count fixes on each row
 - Low-stock alerts, "Low stock" filter, reorder list in cartons/packets
 - Activity log (can't be edited)
 - **Install** button, **Update now** bar when a new version is deployed, **Reload** button

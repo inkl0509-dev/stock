@@ -65,8 +65,10 @@
   <section class="summary" id="summary" aria-label="Stock summary"></section>
 
   <div class="actionbar" id="actionbar">
-    <button class="btn act in" type="button" data-batch="received"><span aria-hidden="true">↓</span>New arrival</button>
-    <button class="btn act out" type="button" data-batch="used"><span aria-hidden="true">−</span>Use / consume</button>
+    <button class="btn act in" type="button" data-cart="in"><span aria-hidden="true">↓</span>Stock in</button>
+    <button class="btn act scan" type="button" data-scanfind aria-label="Scan a barcode to find an item">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3M7 8v8M10 8v8M13 8v8M17 8v8"/></svg><span class="lbl">Scan</span></button>
+    <button class="btn act out" type="button" data-cart="out"><span aria-hidden="true">↑</span>Stock out</button>
   </div>
 
   <div class="tabs" role="tablist">
@@ -79,7 +81,8 @@
       <div class="toolbar">
         <div class="search">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-          <input id="q" type="search" placeholder="Search glasses, forks, cups…" aria-label="Search items">
+          <input id="q" type="search" placeholder="Search name or barcode" aria-label="Search items by name or barcode" enterkeyhint="search">
+          <button type="button" class="in-search-scan" id="mainScan" aria-label="Scan barcode"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3M7 8v8M10 8v8M13 8v8M17 8v8"/></svg></button>
         </div>
         <select id="sort" aria-label="Sort">
           <option value="attention">Needs attention first</option>
@@ -89,7 +92,7 @@
         </select>
       </div>
       <div class="chips" id="chips" role="group" aria-label="Category"></div>
-      <p class="hint tip">Tap an item for its history, issue or breakage. − / + fixes a count by one.</p>
+      <p class="hint tip">Tap an item for details and history. − / + corrects a count by one.</p>
       <div class="list" id="list"></div>
     </section>
 
@@ -121,6 +124,25 @@
   <div class="scrim" data-close></div>
   <div class="panel" role="dialog" aria-modal="true" id="panel"></div>
 </div>
+<div id="sheet2" class="sheet layer2" hidden>
+  <div class="scrim" data-close></div>
+  <div class="panel" role="dialog" aria-modal="true" id="panel2"></div>
+</div>
+
+<!-- Camera barcode scanner -->
+<div id="scanner" class="scanner" role="dialog" aria-modal="true" aria-labelledby="scanTitle" hidden>
+  <div class="scan-top">
+    <div><h3 id="scanTitle">Scan barcode</h3><span id="scanCount" class="scan-count" data-n="0"></span></div>
+    <button class="btn primary" type="button" id="scanClose">Done</button>
+  </div>
+  <div class="scan-stage"><div id="scanRegion" class="scan-region"></div></div>
+  <p class="scan-msg" id="scanMsg" aria-live="polite">Starting camera…</p>
+  <form id="scanManual" class="join scan-manual" novalidate>
+    <input id="scanCode" placeholder="Or type the barcode" autocomplete="off" inputmode="text" aria-label="Type a barcode" enterkeyhint="done">
+    <button class="btn" type="submit">Add</button>
+  </form>
+</div>
+
 <div id="toast" class="toast" role="status" hidden></div>
 
 <script type="module" src="/app.js"></script>

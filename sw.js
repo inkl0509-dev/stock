@@ -1,6 +1,6 @@
 // Service worker: lets the app install, open offline, and update.
 // ⚠️ Change VERSION every time you deploy changes → users see "New version available".
-const VERSION = "2026-11-01-2";
+const VERSION = "2026-11-01-3";
 const CACHE = "crockery-stock-" + VERSION;
 const SHELL = [
   "/", "/index.html", "/admin.html",
@@ -31,8 +31,8 @@ self.addEventListener("fetch", e => {
   if (url.pathname.startsWith("/api/")) return;
   if (url.hostname.endsWith("googleapis.com") && !url.hostname.startsWith("fonts.")) return;
 
-  // Firebase SDK files and fonts never change at a given URL → cache first
-  if (url.hostname === "www.gstatic.com" || url.hostname === "fonts.gstatic.com" || url.hostname === "fonts.googleapis.com") {
+  // Firebase SDK, barcode scanner library and fonts never change at a given URL → cache first
+  if (url.hostname === "www.gstatic.com" || url.hostname === "fonts.gstatic.com" || url.hostname === "fonts.googleapis.com" || url.hostname === "unpkg.com") {
     e.respondWith(caches.open(CACHE).then(async c => {
       const hit = await c.match(req);
       if (hit) return hit;
