@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1d6a86">
+  <title>Crockery Stock</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Sign-in screen -->
+<section id="loginView" class="login" hidden>
+  <form id="loginForm" class="login-card" novalidate>
+    <h1>Crockery Stock</h1>
+    <p class="hint">Sign in to manage your stock.</p>
+    <div class="field"><label for="lEmail">Email</label><input id="lEmail" type="email" autocomplete="username" required></div>
+    <div class="field"><label for="lPass">Password</label><input id="lPass" type="password" autocomplete="current-password" required></div>
+    <div class="err" id="lErr" role="alert"></div>
+    <button class="btn primary" type="submit" id="lBtn">Sign in</button>
+  </form>
+</section>
+
+<!-- Main app -->
+<div class="app" id="appView" hidden>
+  <header class="top">
+    <div class="brand">
+      <h1>Crockery Stock</h1>
+      <span id="sync" class="sync">Loading your stock…</span>
+    </div>
+    <div class="top-actions">
+      <button id="outBtn" class="btn ghost" type="button">Sign out</button>
+      <button id="addBtn" class="btn primary" type="button" aria-label="Add item"><span aria-hidden="true">＋</span><span class="lbl">Add item</span></button>
+    </div>
+  </header>
+
+  <section class="summary" id="summary" aria-label="Stock summary"></section>
+
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" aria-selected="true" data-tab="stock">Stock</button>
+    <button type="button" role="tab" aria-selected="false" data-tab="activity">Activity</button>
+  </div>
+
+  <main class="layout" id="layout" data-tab="stock">
+    <section class="pane" id="stockPane" aria-label="Items">
+      <div class="toolbar">
+        <div class="search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="q" type="search" placeholder="Search glasses, forks, cups…" aria-label="Search items">
+        </div>
+        <select id="sort" aria-label="Sort">
+          <option value="attention">Needs attention first</option>
+          <option value="name">Name A–Z</option>
+          <option value="most">Most in stock</option>
+          <option value="least">Least in stock</option>
+        </select>
+      </div>
+      <div class="chips" id="chips" role="group" aria-label="Category"></div>
+      <div class="list" id="list"></div>
+    </section>
+
+    <aside class="pane" id="activityPane" aria-label="Activity">
+      <div class="side-h"><h2>Activity</h2><span class="hint" id="actCount"></span></div>
+      <ul class="feed" id="feed"></ul>
+    </aside>
+  </main>
+</div>
+
+<div id="sheet" class="sheet" hidden>
+  <div class="scrim" data-close></div>
+  <div class="panel" role="dialog" aria-modal="true" id="panel"></div>
+</div>
+<div id="toast" class="toast" hidden></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
