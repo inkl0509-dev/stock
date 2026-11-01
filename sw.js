@@ -1,6 +1,6 @@
 // Service worker: lets the app install, open offline, and update.
 // ⚠️ Change VERSION every time you deploy changes → users see "New version available".
-const VERSION = "2026-11-01-3";
+const VERSION = "2026-11-01-5";
 const CACHE = "crockery-stock-" + VERSION;
 const SHELL = [
   "/", "/index.html", "/admin.html",
@@ -40,6 +40,21 @@ self.addEventListener("fetch", e => {
       if (res.ok || res.type === "opaque") c.put(req, res.clone());
       return res;
     }));
+    return;
+  }
+
+  // Firebase config: always fetch fresh (so pasting new keys works right away); offline → saved copy
+  if (url.origin === location.origin && url.pathname === "/firebase-config.js") {
+    e.respondWith((async () => {
+      const c = await caches.open(CACHE);
+      try {
+        const res = await fetch(req, { cache: "no-store" });
+        if (res.ok) c.put("/firebase-config.js", res.clone());
+        return res;
+      } catch (err) {
+        return (await c.match("/firebase-config.js")) || Response.error();
+      }
+    })());
     return;
   }
 
