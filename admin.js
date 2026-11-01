@@ -1,6 +1,6 @@
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { fbApp, auth, api } from "./firebase.js";
+import { fbApp, auth, api, configMissing } from "./firebase.js";
 import "./pwa.js";
 
 const db = getFirestore(fbApp);
@@ -122,7 +122,7 @@ async function load(){
   } catch (e) {
     $("#addUser").disabled = true;
     $("#ulist").innerHTML = "";
-    if (e.status === 403) notice(`<b>Admins only.</b><span>Your account can update stock but can't manage users. Ask an admin for access.</span>`);
+    if (e.status === 403) notice(`<b>Admins only.</b><span>${esc(auth.currentUser?.email)} is a staff account. To make it the main admin, add it to <code>ADMIN_EMAILS</code> in Vercel → Settings → Environment Variables, redeploy, then sign out and back in. Or ask an existing admin to change your access.</span>`);
     else if (e.status === 404) notice(`<b>User management isn't available here.</b><span>It runs on Vercel. Deploy the project to Vercel (the <code>/api</code> folder) to use this page.</span>`);
     else if (!navigator.onLine) notice(`<b>You're offline.</b><span>Connect to the internet to manage users.</span>`);
     else notice(`<b>Couldn't load users.</b><span>${esc(e.message)}</span>`);

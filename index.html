@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#1d6a86">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Stock">
@@ -129,18 +130,21 @@
   <div class="panel" role="dialog" aria-modal="true" id="panel2"></div>
 </div>
 
-<!-- Camera barcode scanner -->
+<!-- Camera barcode scanner (box) -->
 <div id="scanner" class="scanner" role="dialog" aria-modal="true" aria-labelledby="scanTitle" hidden>
-  <div class="scan-top">
-    <div><h3 id="scanTitle">Scan barcode</h3><span id="scanCount" class="scan-count" data-n="0"></span></div>
-    <button class="btn primary" type="button" id="scanClose">Done</button>
+  <div class="scan-scrim" id="scanScrim"></div>
+  <div class="scan-card">
+    <div class="scan-top">
+      <div><h3 id="scanTitle">Scan barcode</h3><span id="scanCount" class="scan-count" data-n="0"></span></div>
+      <button class="btn primary sm" type="button" id="scanClose">Done</button>
+    </div>
+    <div class="scan-stage"><div id="scanRegion" class="scan-region"></div><span class="scan-line" aria-hidden="true"></span></div>
+    <p class="scan-msg" id="scanMsg" aria-live="polite">Starting camera…</p>
+    <form id="scanManual" class="join scan-manual" novalidate>
+      <input id="scanCode" placeholder="Or type the barcode" autocomplete="off" inputmode="text" aria-label="Type a barcode" enterkeyhint="done">
+      <button class="btn" type="submit">Add</button>
+    </form>
   </div>
-  <div class="scan-stage"><div id="scanRegion" class="scan-region"></div></div>
-  <p class="scan-msg" id="scanMsg" aria-live="polite">Starting camera…</p>
-  <form id="scanManual" class="join scan-manual" novalidate>
-    <input id="scanCode" placeholder="Or type the barcode" autocomplete="off" inputmode="text" aria-label="Type a barcode" enterkeyhint="done">
-    <button class="btn" type="submit">Add</button>
-  </form>
 </div>
 
 <div id="toast" class="toast" role="status" hidden></div>

@@ -6,7 +6,7 @@ import {
   onAuthStateChanged, signInWithEmailAndPassword, signOut,
   setPersistence, browserLocalPersistence, browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { fbApp, auth, api } from "./firebase.js";
+import { fbApp, auth, api, configMissing } from "./firebase.js";
 import { checkForUpdate } from "./pwa.js";
 
 /* ---------- Firebase ---------- */
@@ -123,6 +123,7 @@ onAuthStateChanged(auth, user => {
 $("#loginForm").addEventListener("submit", async e => {
   e.preventDefault();
   const email = $("#lEmail").value.trim(), pass = $("#lPass").value, err = $("#lErr");
+  if (configMissing) return showConfigHelp();
   if (!email || !pass) return err.textContent = "Enter your email and password.";
   err.textContent = ""; $("#lBtn").disabled = true;
   try {
@@ -131,13 +132,27 @@ $("#loginForm").addEventListener("submit", async e => {
     try { localStorage.setItem("cs-remember", $("#lRemember").checked ? "1" : "0"); } catch (_) {}
     await signInWithEmailAndPassword(auth, email, pass);
   } catch (ex) {
-    err.textContent = ex.code === "auth/too-many-requests" ? "Too many attempts. Wait a minute and try again."
+    if (/api-key|invalid-api-key|configuration-not-found|project-not-found/.test(ex.code || "")) return showConfigHelp(ex.code);
+    err.textContent = ex.code === "auth/operation-not-allowed" ? "Email/Password sign-in is turned off. Turn it on in Firebase → Authentication → Sign-in method."
+      : ex.code === "auth/unauthorized-domain" ? `This website (${location.hostname}) isn't allowed yet. Add it in Firebase → Authentication → Settings → Authorized domains.`
+      : ex.code === "auth/user-disabled" ? "This account is disabled. Ask your admin."
+      : ex.code === "auth/too-many-requests" ? "Too many attempts. Wait a minute and try again."
       : ex.code === "auth/network-request-failed" ? "No internet connection."
       : "Wrong email or password.";
   } finally { $("#lBtn").disabled = false; }
 });
+function showConfigHelp(code){
+  $("#lErr").innerHTML = `<b>Firebase isn't connected yet.</b> Open <code>firebase-config.js</code> and replace the placeholder values
+    with your app's config from Firebase console → Project settings → General → Your apps → Web app.
+    Then upload the file to GitHub again.${code ? ` <small>(${esc(code)})</small>` : ""}`;
+  $("#lErr").classList.add("setup");
+}
+if (configMissing) showConfigHelp();
+
 $("#outBtn").addEventListener("click", () => {
-  openSheet(`<h3>Sign out?</h3><p class="hint">Signed in as ${esc(auth.currentUser?.email)}. You'll need your email and password to get back in.</p>
+  const role = $("#adminLink").hidden ? "Staff" : "Admin";
+  openSheet(`<h3>Sign out?</h3><p>Signed in as <b>${esc(auth.currentUser?.email)}</b> <span class="pill ${role === "Admin" ? "admin" : "staff"}">${role}</span></p>
+    <p class="hint">${role === "Admin" ? "You can manage users and lists on the Admin page." : "Admins are set in Vercel → Settings → Environment Variables → ADMIN_EMAILS."} You'll need your email and password to sign back in.</p>
     <div class="actions"><button class="btn" type="button" data-close>Stay signed in</button><button class="btn primary" type="button" id="yesOut">Sign out</button></div>`,
     p => p.querySelector("#yesOut").addEventListener("click", () => { closeSheet(1, true); signOut(auth); }));
 });
@@ -866,7 +881,8 @@ async function openScanner(onCode, { title = "Scan barcode", multi = false, onCl
       formatsToSupport: [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39, F.CODE_93, F.ITF, F.CODABAR, F.QR_CODE, F.DATA_MATRIX] });
     await qr.start({ facingMode: "environment" }, {
       fps: 12,
-      qrbox: (w, h) => ({ width: Math.max(160, Math.floor(Math.min(w * 0.86, 360))), height: Math.max(90, Math.floor(Math.min(h * 0.42, 190))) })
+      aspectRatio: 1.5,
+      qrbox: (w, h) => ({ width: Math.max(150, Math.floor(w * 0.82)), height: Math.max(80, Math.floor(h * 0.5)) })
     }, onDecoded, () => {});
     if ($("#scanner").hidden) return stopCamera();
     scanMsg(multi ? "Point at a barcode. Keep scanning, then tap Done." : "Point the camera at a barcode.");
@@ -910,6 +926,7 @@ async function closeScanner(){
   cb && cb();
 }
 $("#scanClose").addEventListener("click", closeScanner);
+$("#scanScrim").addEventListener("click", closeScanner);
 $("#scanManual").addEventListener("submit", e => {
   e.preventDefault();
   const v = $("#scanCode").value.trim(); if (!v) return;

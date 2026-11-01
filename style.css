@@ -473,3 +473,25 @@ form.join{flex-direction:row}
 .panel.full .cart-body .lines{flex:none;overflow:visible;min-height:0}
 .panel.full .cart-body .cart-empty{flex:1}
 .cart-extra{padding-bottom:16px}
+.err.setup{background:var(--warn-soft);color:var(--ink);border-radius:10px;padding:10px 12px;font-size:.88rem;line-height:1.45}
+.err.setup code{font-family:var(--f-mono);background:var(--surface);padding:1px 5px;border-radius:5px}
+
+/* scanner as a box (not full screen) */
+.scanner{background:transparent;padding:16px;align-items:center;justify-content:center;gap:0}
+.scan-scrim{position:absolute;inset:0;background:rgba(8,14,18,.6)}
+.scan-card{position:relative;width:min(420px,100%);background:#11181d;color:#e9f0f3;border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+.scan-top h3{font-size:1.1rem}
+.scan-stage{flex:none;position:relative;width:100%;aspect-ratio:3/2;max-height:42vh;border-radius:12px}
+.scan-region{width:100%;height:100%}
+.scan-region > div,.scan-region video{width:100%!important;height:100%!important;object-fit:cover;border-radius:10px}
+.scan-region #qr-shaded-region{border-width:24px 30px!important}
+.scan-line{position:absolute;left:12%;right:12%;top:50%;height:2px;background:#ff5a4f;box-shadow:0 0 8px #ff5a4f;opacity:.85;pointer-events:none;animation:scanline 1.8s ease-in-out infinite}
+@keyframes scanline{0%,100%{transform:translateY(-28px)}50%{transform:translateY(28px)}}
+.scan-msg{min-height:0;font-size:.9rem}
+.scan-manual input,.scan-manual .btn{min-height:44px}
+@media (prefers-reduced-motion:reduce){.scan-line{animation:none}}
+@media (max-width:560px){
+  .scanner{padding:12px max(12px,env(safe-area-inset-right,0px)) calc(12px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px))}
+  .scan-card{padding:12px}
+  .scan-stage{aspect-ratio:4/3}
+}

@@ -3,6 +3,10 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { firebaseConfig } from "./firebase-config.js";
 
+// True until real values from the Firebase console are pasted into firebase-config.js
+export const configMissing = !firebaseConfig?.apiKey || /PASTE|your-project/i.test(firebaseConfig.apiKey + firebaseConfig.projectId);
+if (configMissing) console.warn("Firebase is not set up: paste your web app config into firebase-config.js");
+
 export const fbApp = initializeApp(firebaseConfig);
 export const auth = getAuth(fbApp);
 
