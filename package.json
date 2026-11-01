@@ -1,0 +1,10 @@
+{
+  "name": "crockery-stock",
+  "private": true,
+  "type": "module",
+  "description": "Stock app for crockery and cutlery. Static site + Vercel API for user admin.",
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "firebase-admin": "^12.1.0"
+  }
+}

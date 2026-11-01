@@ -4,26 +4,41 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#1d6a86">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Stock">
   <title>Crockery Stock</title>
-  <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+
+<!-- New version bar -->
+<div id="updateBar" class="update-bar" role="status" hidden>
+  <span>A new version of the app is ready.</span>
+  <button id="updateBtn" class="btn primary sm" type="button">Update now</button>
+</div>
 
 <!-- Sign-in screen -->
 <section id="loginView" class="login" hidden>
   <form id="loginForm" class="login-card" novalidate>
+    <img src="/icon.svg" alt="" width="52" height="52" class="login-logo">
     <h1>Crockery Stock</h1>
     <p class="hint">Sign in to manage your stock.</p>
-    <div class="field"><label for="lEmail">Email</label><input id="lEmail" type="email" autocomplete="username" required></div>
-    <div class="field"><label for="lPass">Password</label><input id="lPass" type="password" autocomplete="current-password" required></div>
+    <div class="field"><label for="lEmail">Email</label><input id="lEmail" type="email" autocomplete="username" inputmode="email" required></div>
+    <div class="field"><label for="lPass">Password</label>
+      <div class="join"><input id="lPass" type="password" autocomplete="current-password" required><button type="button" class="btn" id="lPassToggle">Show</button></div>
+    </div>
     <label class="remember" for="lRemember"><input id="lRemember" type="checkbox" checked> Remember me on this device</label>
     <div class="err" id="lErr" role="alert"></div>
     <button class="btn primary" type="submit" id="lBtn">Sign in</button>
+    <p class="hint">Forgot your password? Ask your admin to reset it.</p>
+    <button class="btn ghost" type="button" data-install hidden>Install app on this device</button>
   </form>
 </section>
 
@@ -32,15 +47,27 @@
   <header class="top">
     <div class="brand">
       <h1>Crockery Stock</h1>
-      <span id="sync" class="sync">Loading your stock…</span>
+      <span class="sub-line"><span id="sync" class="sync">Loading your stock…</span><span class="who" id="who"></span></span>
     </div>
     <div class="top-actions">
-      <button id="outBtn" class="btn ghost" type="button">Sign out</button>
-      <button id="addBtn" class="btn primary" type="button" aria-label="Add item"><span aria-hidden="true">＋</span><span class="lbl">Add item</span></button>
+      <button class="btn ghost" type="button" data-install hidden title="Install app">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14"/></svg><span class="lbl">Install</span></button>
+      <button class="btn ghost" type="button" id="reloadBtn" title="Reload stock and check for updates">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg><span class="lbl">Reload</span></button>
+      <a class="btn ghost" href="/admin.html" id="adminLink" hidden title="Users and lists">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M17 11h6M20 8v6"/></svg><span class="lbl">Admin</span></a>
+      <button id="outBtn" class="btn ghost" type="button" title="Sign out">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg><span class="lbl">Sign out</span></button>
+      <button id="addBtn" class="btn" type="button" title="Add a new item"><span aria-hidden="true">＋</span><span class="lbl">New item</span></button>
     </div>
   </header>
 
   <section class="summary" id="summary" aria-label="Stock summary"></section>
+
+  <div class="actionbar" id="actionbar">
+    <button class="btn act in" type="button" data-batch="received"><span aria-hidden="true">↓</span>New arrival</button>
+    <button class="btn act out" type="button" data-batch="used"><span aria-hidden="true">−</span>Use / consume</button>
+  </div>
 
   <div class="tabs" role="tablist">
     <button type="button" role="tab" aria-selected="true" data-tab="stock">Stock</button>
@@ -62,6 +89,7 @@
         </select>
       </div>
       <div class="chips" id="chips" role="group" aria-label="Category"></div>
+      <p class="hint tip">Tap an item for its history, issue or breakage. − / + fixes a count by one.</p>
       <div class="list" id="list"></div>
     </section>
 
@@ -70,14 +98,31 @@
       <ul class="feed" id="feed"></ul>
     </aside>
   </main>
+
+</div>
+
+<!-- iPhone install help -->
+<div id="iosHelp" class="sheet" hidden>
+  <div class="scrim" data-ios-close></div>
+  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="iosT">
+    <button type="button" class="btn ghost x" data-ios-close aria-label="Close">✕</button>
+    <h3 id="iosT">Install on iPhone or iPad</h3>
+    <ol class="steps">
+      <li>Open this page in <b>Safari</b>.</li>
+      <li>Tap the <b>Share</b> button <span aria-hidden="true">⬆︎</span> at the bottom of the screen.</li>
+      <li>Choose <b>Add to Home Screen</b>, then tap <b>Add</b>.</li>
+    </ol>
+    <p class="hint">The app then opens from your home screen like any other app.</p>
+    <div class="actions"><button class="btn primary" type="button" data-ios-close>Got it</button></div>
+  </div>
 </div>
 
 <div id="sheet" class="sheet" hidden>
   <div class="scrim" data-close></div>
   <div class="panel" role="dialog" aria-modal="true" id="panel"></div>
 </div>
-<div id="toast" class="toast" hidden></div>
+<div id="toast" class="toast" role="status" hidden></div>
 
-<script type="module" src="app.js"></script>
+<script type="module" src="/app.js"></script>
 </body>
 </html>
