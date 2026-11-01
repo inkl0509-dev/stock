@@ -4,7 +4,8 @@ import {
   collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
-  getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut
+  getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut,
+  setPersistence, browserLocalPersistence, browserSessionPersistence
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { firebaseConfig } from "./firebase-config.js";
 
@@ -42,6 +43,7 @@ onAuthStateChanged(auth, user => {
   } else {
     items = []; moves = []; loaded = false;
     $("#appView").hidden = true; $("#loginView").hidden = false;
+    try { $("#lRemember").checked = localStorage.getItem("cs-remember") !== "0"; } catch (_) {}
     $("#lEmail").focus();
   }
 });
@@ -51,7 +53,13 @@ $("#loginForm").addEventListener("submit", async e => {
   const email = $("#lEmail").value.trim(), pass = $("#lPass").value, err = $("#lErr");
   if (!email || !pass) return err.textContent = "Enter your email and password.";
   err.textContent = ""; $("#lBtn").disabled = true;
-  try { await signInWithEmailAndPassword(auth, email, pass); }
+  try {
+    // Remember me ON  → stay signed in after closing the browser or restarting the phone
+    // Remember me OFF → signed out when the tab/browser is closed
+    await setPersistence(auth, $("#lRemember").checked ? browserLocalPersistence : browserSessionPersistence);
+    try { localStorage.setItem("cs-remember", $("#lRemember").checked ? "1" : "0"); } catch (_) {}
+    await signInWithEmailAndPassword(auth, email, pass);
+  }
   catch (ex) {
     err.textContent = ex.code === "auth/too-many-requests"
       ? "Too many attempts. Wait a minute and try again."
