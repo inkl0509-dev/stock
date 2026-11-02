@@ -544,3 +544,11 @@ form.join{flex-direction:row}
 .setup-banner > svg{width:28px;height:28px;color:var(--accent);flex:none}
 .setup-banner div{flex:1;display:flex;flex-direction:column;min-width:0;font-size:.9rem}
 .setup-banner span{color:var(--muted);font-size:.82rem}
+
+/* scanner: keep-scanning switch */
+.scan-tools .tool.keep{margin-left:auto;gap:8px;cursor:pointer}
+.scan-tools .tool.keep input{width:18px;height:18px;accent-color:#7fd3f0;margin:0}
+.scan-tools .tool.keep:has(input:checked){background:rgba(127,211,240,.25)}
+/* product just scanned */
+.cline.picked{animation:picked 1.6s ease-out;border-color:var(--accent)}
+@keyframes picked{0%{box-shadow:0 0 0 4px var(--accent);background:var(--accent-soft)}60%{background:var(--accent-soft)}100%{box-shadow:0 0 0 0 transparent}}
