@@ -6,7 +6,7 @@ installs like an app, and keeps working offline.
 - Plain HTML/CSS/JS — no build step
 - **Firebase Firestore** stores the stock (cached on each device in **IndexedDB**, so it opens and works offline and syncs when back online)
 - **Firebase Auth** for sign-in (with "Remember me")
-- **Vercel** hosts the site, plus two small server functions in `/api` for the admin "Users" page
+- **Vercel** hosts the site (no server code or environment variables needed)
 
 ## Features
 
@@ -20,7 +20,14 @@ installs like an app, and keeps working offline.
   - **Phone camera:** tap *Scan*, keep scanning items one after another (beep + vibrate on each).
     Works in Chrome, Edge and Safari (iPhone) over HTTPS — Vercel gives you HTTPS automatically.
   - **Handheld USB / Bluetooth scanners** work too — just scan; no need to tap anything.
-  - Each item can have 3 barcodes: **piece**, **packet** and **carton**. Scanning a carton barcode adds 1 whole carton.
+  - Each item can have **any number of barcodes** — e.g. one per brand. Each barcode counts as a piece, packet,
+    carton, or a custom qty ("Other qty", e.g. a box of 24), and can have a brand name.
+  - **Scanner tools:** high-resolution camera with continuous focus, wide scan box, **Light** (torch) and **Zoom**
+    where the phone supports them, and **Photo** — take a picture of the barcode if live scanning struggles.
+  - **Barcode setup:** tap the **No barcode** filter → **Start**, and scan your existing items one after another.
+    Or open an item → **Add barcode**.
+- **Merge items:** open an item → **Merge…** → choose the item to keep. Stock is added together, barcodes move over
+  (still counting the right qty even if pack sizes differ), history stays, and the duplicate is removed.
   - **Unknown barcode?** Create a new item with it, or link it to an existing item — without losing your list.
   - Scan on the main screen (or type a barcode in search) to jump straight to that item.
 - Quick − / + count fixes on each row
@@ -42,7 +49,7 @@ installs like an app, and keeps working offline.
 | `firebase.js` | Shared Firebase setup |
 | `firebase-config.js` | **Your** Firebase web keys go here |
 | `pwa.js`, `sw.js`, `manifest.json`, icons | Install / offline / update |
-| `api/users.js`, `api/me.js`, `api/_lib.js` | Server functions for user management (run on Vercel) |
+| `admins.js` | The **owner** email (always admin) |
 | `firestore.rules` | Database security rules |
 | `vercel.json`, `package.json` | Vercel settings |
 
@@ -70,22 +77,28 @@ git remote add origin https://github.com/YOUR-USERNAME/crockery-stock.git
 git push -u origin main
 ```
 
+## 2b. Users and admins
+
+**You (the owner)** are the email in `admins.js` and in `firestore.rules` (`isOwner`). The owner is always an admin.
+
+Everyone else is managed **inside the app**: sign in as the owner → **Admin** button → **Users** → **Add user**.
+Type their email and a password (or tick *They already have a login*), choose **Staff** or **Admin**, tap **Add user**,
+and send them the sign-in details it shows.
+
+- **Staff:** stock in / out, add and edit items.
+- **Admin:** also Users and *Units & categories*.
+- Only people on this list can use the app. Remove someone with **Manage → Remove access**.
+
+One Firebase setting is needed for **Add user** to create logins:
+Firebase → Authentication → **Settings → User actions** → **Enable create (sign-up)** = **on**.
+(This is safe: a login that isn't on your user list can't see or change anything.)
+
 ## 3. Deploy on Vercel
 
-1. https://vercel.com → **Add New → Project** → import the repo. Framework Preset: **Other**. Leave build settings empty.
-2. Before clicking Deploy, open **Environment Variables** and add:
+1. https://vercel.com → **Add New → Project** → import the repo. Framework Preset: **Other**. Leave build settings empty. **Deploy**.
+2. Firebase → **Authentication → Settings → Authorized domains → Add domain** → your `xxx.vercel.app` domain.
 
-   | Name | Value |
-   |---|---|
-   | `FIREBASE_SERVICE_ACCOUNT` | Open the downloaded service-account `.json` file, copy **everything**, paste it here |
-   | `ADMIN_EMAILS` | Your email, e.g. `you@gmail.com` (comma-separate for more than one main admin) |
-
-3. **Deploy**.
-4. Firebase → **Authentication → Settings → Authorized domains → Add domain** → your `xxx.vercel.app` domain.
-
-Sign in with your account → you'll see an **Admin** button → add your staff and set up your lists there.
-
-> Changed environment variables later? Vercel → Deployments → ⋯ → **Redeploy** so they take effect.
+No environment variables are needed.
 
 ## 4. Install on phones
 
@@ -107,7 +120,7 @@ If you forget to change `VERSION`, installed apps keep showing the old version.
 
 - **Staff:** see and update stock.
 - **Admin:** everything staff can do + the **Admin** page (users and lists).
-- Emails in `ADMIN_EMAILS` are always admins and can't be removed or deleted from the Users page.
+- The owner email (admins.js + firestore.rules) is always an admin and can't be removed.
 
 ## Updating from an older version of this project
 
@@ -117,14 +130,13 @@ Paste the new `firestore.rules` into Firebase → Firestore → **Rules** → **
 ## Run locally (optional)
 
 ```bash
-npx vercel dev        # runs the site AND the /api functions (needs the env variables)
-# or, stock page only (no Users page):
 python3 -m http.server 8000
 ```
 
 ## Data layout
 
-- `items/{id}` — `name, category, unit, qty, min, perPacket, perCarton, place, createdAt, updatedAt`
+- `items/{id}` — `name, category, unit, qty, min, perPacket, perCarton, place, codes[{code, per, n, brand}], createdAt, updatedAt`
   (`qty`, `min`, `perPacket`, `perCarton` are all in the item's unit, e.g. pieces)
 - `moves/{id}` — `itemId, name, unit, type (received|issued|broken|count), qty, before, after, party (supplier / outlet / reason), note, at`
 - `settings/lists` — `units, categories, places, suppliers, outlets, reasons` (admins only can change)
+- `settings/access` — `admins[], staff[], people{email: {name, addedAt}}` (who can use the app)

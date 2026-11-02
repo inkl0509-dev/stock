@@ -36,11 +36,10 @@
     </div>
   </header>
 
-  <div id="notice" class="notice" hidden></div>
 
   <div class="tabs admin-tabs" role="tablist">
     <button type="button" role="tab" aria-selected="true" data-atab="users">Users</button>
-    <button type="button" role="tab" aria-selected="false" data-atab="lists">Lists &amp; settings</button>
+    <button type="button" role="tab" aria-selected="false" data-atab="lists">Units &amp; categories</button>
   </div>
 
   <section id="listsPane" class="pane" hidden>
@@ -49,13 +48,14 @@
   </section>
 
   <section id="usersPane" class="pane">
+  <div id="notice" class="notice" hidden></div>
   <div class="toolbar">
     <div class="search">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       <input id="uq" type="search" placeholder="Search by name or email" aria-label="Search users">
     </div>
   </div>
-  <p class="hint"><b>Staff</b> can update stock. <b>Admins</b> can also add and remove users.</p>
+  <p class="hint">Only people on this list can use the app. <b>Staff</b>: stock in / out and items. <b>Admin</b>: also users, units &amp; categories.</p>
   <ul class="ulist" id="ulist"><li style="display:block"><div class="empty"><h3>Loading users…</h3></div></li></ul>
   </section>
 </div>

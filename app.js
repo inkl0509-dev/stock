@@ -185,7 +185,7 @@ if (configMissing) showConfigHelp();
 $("#outBtn").addEventListener("click", () => {
   const role = amAdmin ? "Admin" : "Staff";
   openSheet(`<h3>Sign out?</h3><p>Signed in as <b>${esc(auth.currentUser?.email)}</b> <span class="pill ${role === "Admin" ? "admin" : "staff"}">${role}</span></p>
-    <p class="hint">${role === "Admin" ? "You can manage users and lists on the Admin page." : "Admins are set in admins.js and firestore.rules (or on the Admin → Users page)."} You'll need your email and password to sign back in.</p>
+    <p class="hint">${role === "Admin" ? "You can manage users and lists on the Admin page." : "An admin can make you an admin on Admin → Users."} You'll need your email and password to sign back in.</p>
     <div class="actions"><button class="btn" type="button" data-close>Stay signed in</button><button class="btn primary" type="button" id="yesOut">Sign out</button></div>`,
     p => p.querySelector("#yesOut").addEventListener("click", () => { closeSheet(1, true); signOut(auth); }));
 });
@@ -196,17 +196,21 @@ $("#lPassToggle").addEventListener("click", () => {
 
 let amAdmin = false;
 function setAdmin(v){ amAdmin = !!v; $("#adminLink").hidden = !amAdmin; }
-async function showAdminLink(){
-  const listed = isAdminEmail(auth.currentUser.email);   // emails in admins.js
-  let cached = false;
-  try { cached = localStorage.getItem("cs-admin:" + auth.currentUser.uid) === "1"; } catch (_) {}
-  setAdmin(listed || cached);
-  try {
-    const r = await api("/api/me");
-    setAdmin(listed || r.admin);
-    if (r.admin) { const t = await auth.currentUser.getIdTokenResult(); if (t.claims.admin !== true) await auth.currentUser.getIdToken(true); }
-    try { localStorage.setItem("cs-admin:" + auth.currentUser.uid, r.admin ? "1" : "0"); } catch (_) {}
-  } catch (e) { if (e.status === 403 || e.status === 401) setAdmin(listed); }
+/* Admin = owner email (admins.js) or listed as admin on Admin → Users (settings/access) */
+function showAdminLink(){
+  const email = String(auth.currentUser?.email || "").toLowerCase();
+  setAdmin(isAdminEmail(email));
+  unsubs.push(onSnapshot(doc(db, "settings", "access"), snap => {
+    setAdmin(isAdminEmail(email) || !!snap.data()?.admins?.includes(email));
+  }, () => {}));
+}
+/* signed in, but not on the user list */
+function showNoAccess(){
+  $("#list").innerHTML = `<div class="empty"><h3>No access yet</h3>
+    <p>${esc(auth.currentUser?.email)} isn't on the user list. Ask your admin to add you on Admin → Users, then tap Reload.</p>
+    <button class="btn" type="button" id="naOut">Sign in with another account</button></div>`;
+  $("#naOut").addEventListener("click", () => signOut(auth));
+  setSync("No access", "bad");
 }
 
 /* add a new entry to an admin list (categories, units…) from a form */
@@ -247,7 +251,7 @@ function startData(){
     setSync(snap.metadata.fromCache ? "Offline · changes will sync" : "Saved · syncs across devices",
             snap.metadata.fromCache ? "warn" : "ok");
     render();
-  }, e => { setSync("Can't load stock: " + e.code, "bad"); loaded = true; render(); }));
+  }, e => { loaded = true; if (e.code === "permission-denied") return showNoAccess(); setSync("Can't load stock: " + e.code, "bad"); render(); }));
 
   unsubs.push(onSnapshot(doc(db, "settings", "lists"), snap => {
     const d = snap.data() || {};

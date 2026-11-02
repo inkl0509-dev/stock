@@ -2,31 +2,46 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Signed-in users (staff + admins) can read and update stock.
-    // Users are created on the app's Admin page (or Firebase console → Authentication).
-    function signedIn() { return request.auth != null; }
-    function isAdmin()  { return signedIn() && request.auth.token.admin == true; }
+    // ── WHO CAN USE THE APP ─────────────────────────────────────────────
+    // OWNER: this email is always an admin. Keep it the same as admins.js.
+    function isOwner() {
+      return request.auth != null && request.auth.token.email in ["iirufan@gmail.com"];
+    }
+    // Everyone else is added on the app's Admin → Users page (stored in settings/access).
+    function accessPath() { return /databases/$(database)/documents/settings/access; }
+    function listed(role) {
+      return request.auth != null && exists(accessPath())
+        && request.auth.token.email in get(accessPath()).data[role];
+    }
+    function isAdmin()  { return isOwner() || listed("admins"); }
+    // Until the owner first opens the Admin page, any signed-in user can use the app.
+    function isMember() {
+      return isAdmin() || listed("staff") || (request.auth != null && !exists(accessPath()));
+    }
 
+    // ── STOCK ───────────────────────────────────────────────────────────
     match /items/{itemId} {
-      allow read: if signedIn();
-      allow create, update: if signedIn()
+      allow read: if isMember();
+      allow create, update: if isMember()
         && request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.qty is number
         && request.resource.data.qty >= 0
         && request.resource.data.min is number
         && request.resource.data.min >= 0;
-      allow delete: if signedIn();
+      allow delete: if isMember();
     }
 
     match /moves/{moveId} {
-      allow read, create: if signedIn();
+      allow read, create: if isMember();
       allow update, delete: if false;   // activity log can't be edited
     }
 
-    // Units, categories, places, suppliers, outlets, breakage reasons — only admins can change
+    // ── SETTINGS ────────────────────────────────────────────────────────
+    // lists  = units, categories, places, suppliers, outlets, reasons
+    // access = who is admin / staff
     match /settings/{docId} {
-      allow read: if signedIn();
+      allow read: if isMember();
       allow write: if isAdmin();
     }
 
