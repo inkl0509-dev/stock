@@ -1,10 +1,10 @@
 // Service worker: lets the app install, open offline, and update.
 // ⚠️ Change VERSION every time you deploy changes → users see "New version available".
-const VERSION = "2026-11-01-6";
+const VERSION = "2026-11-02-2";
 const CACHE = "crockery-stock-" + VERSION;
 const SHELL = [
   "/", "/index.html", "/admin.html",
-  "/style.css", "/app.js", "/admin.js", "/firebase.js", "/firebase-config.js", "/pwa.js",
+  "/style.css", "/app.js", "/admin.js", "/firebase.js", "/firebase-config.js", "/admins.js", "/pwa.js",
   "/manifest.json", "/icon.svg", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/apple-touch-icon.png"
 ];
 
@@ -43,16 +43,16 @@ self.addEventListener("fetch", e => {
     return;
   }
 
-  // Firebase config: always fetch fresh (so pasting new keys works right away); offline → saved copy
-  if (url.origin === location.origin && url.pathname === "/firebase-config.js") {
+  // Firebase config + admin list: always fetch fresh (so pasting new keys works right away); offline → saved copy
+  if (url.origin === location.origin && (url.pathname === "/firebase-config.js" || url.pathname === "/admins.js")) {
     e.respondWith((async () => {
       const c = await caches.open(CACHE);
       try {
         const res = await fetch(req, { cache: "no-store" });
-        if (res.ok) c.put("/firebase-config.js", res.clone());
+        if (res.ok) c.put(url.pathname, res.clone());
         return res;
       } catch (err) {
-        return (await c.match("/firebase-config.js")) || Response.error();
+        return (await c.match(url.pathname)) || Response.error();
       }
     })());
     return;
