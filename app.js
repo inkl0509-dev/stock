@@ -977,7 +977,7 @@ function openCart(mode = "in", { itemId = null, per = null, scan = false } = {})
     e.preventDefault();
     const q = find.value.trim(); if (!q) return;
     const hit = findByCode(q);
-    if (hit) { addLine(hit.it, ...levelFor(hit.c, hit.it), { fromScan: true }); beep(true); find.value = ""; showResults(); return; }
+    if (hit) { const line = addLine(hit.it, ...levelFor(hit.c, hit.it), { fromScan: true }); showLine(line); beep(true); find.value = ""; showResults(); return; }
     const first = results.querySelector("[data-pick]");
     if (first) first.click();
     else if (/^\w{4,}$/.test(q)) { beep(false); handleUnknown(q); }
@@ -992,16 +992,35 @@ function openCart(mode = "in", { itemId = null, per = null, scan = false } = {})
   });
   const handleUnknown = code => unknownCode(code, { layer: 2, onResolved: (it, c) => addLine(it, ...levelFor(c, it)) });
 
-  /* camera scanning: keeps scanning until Done */
+  /* camera scanning: after a scan, close the scanner and go straight to that product.
+     With "Keep scanning" on, the scanner stays open for the next item. */
   pn.querySelector("#cScan").addEventListener("click", () => {
     const unknown = [];
+    let goTo = null;
     openScanner(code => {
       const hit = findByCode(code);
-      if (!hit) { if (!unknown.includes(code)) unknown.push(code); return { ok: false, text: `Not found: ${code}. You can set it up after closing the scanner.` }; }
+      if (!hit) {
+        if (!keepScanning()) { goTo = { unknown: code }; return { ok: false, text: `New barcode ${code}`, close: true }; }
+        if (!unknown.includes(code)) unknown.push(code);
+        return { ok: false, text: `Not found: ${code}. You can set it up after tapping Done.` };
+      }
       const line = addLine(hit.it, ...levelFor(hit.c, hit.it), { fromScan: true });
+      if (!keepScanning()) { goTo = { line }; return { ok: true, text: hit.it.name, close: true }; }
       return { ok: true, text: `+1 ${codeLabel(hit.c, hit.it)} · ${hit.it.name}${hit.c.brand ? ` (${hit.c.brand})` : ""} · ${line.qb.total()} ${U(hit.it)} in list` };
-    }, { title: cart.mode === "in" ? "Scan items coming in" : "Scan items going out", multi: true, onClose: () => { if (unknown.length) handleUnknown(unknown[0]); } });
+    }, { title: cart.mode === "in" ? "Scan item coming in" : "Scan item going out", multi: true, keepToggle: true,
+         onClose: () => {
+           if (goTo?.line) showLine(goTo.line);
+           else if (goTo?.unknown) handleUnknown(goTo.unknown);
+           else if (unknown.length) handleUnknown(unknown[0]);
+         } });
   });
+  /* bring a product line into view and highlight it */
+  const showLine = line => {
+    pn.querySelector("#cLines").prepend(line.el);
+    pn.querySelector(".cart-body").scrollTo({ top: 0, behavior: "smooth" });
+    line.el.classList.remove("flash", "picked"); void line.el.offsetWidth; line.el.classList.add("picked");
+  };
+  cart.showLine = showLine;
 
   pn.querySelectorAll("input[name=cMode]").forEach(r => r.addEventListener("change", () => { cart.mode = r.value; drawMode(); }));
   pn.querySelectorAll("input[name=cOut]").forEach(r => r.addEventListener("change", () => { cart.outType = r.value; drawMode(); }));
@@ -1077,10 +1096,18 @@ function showLevelChoice(it){
 }
 const scanLevel = () => document.querySelector('input[name="scanLv"]:checked')?.value || "pcs";
 
-async function openScanner(onCode, { title = "Scan barcode", multi = false, onClose = null, level = null, skip = null } = {}){
+function keepScanning(){ try { return localStorage.getItem("cs-keepscan") === "1"; } catch (_) { return false; } }
+$("#scanKeep").addEventListener("change", e => {
+  try { localStorage.setItem("cs-keepscan", e.target.checked ? "1" : "0"); } catch (_) {}
+  $("#scanClose").textContent = e.target.checked ? "Done" : "Close";
+  scanMsg(e.target.checked ? "Keep scanning is on: scan one item after another, then tap Done." : "Each scan takes you straight to the product.");
+});
+async function openScanner(onCode, { title = "Scan barcode", multi = false, onClose = null, level = null, skip = null, keepToggle = false } = {}){
   scanCb = onCode; scanMulti = multi; scanOnClose = onClose; scanSkip = skip;
   setScanTitle(title);
-  $("#scanClose").textContent = multi ? "Done" : "Close";
+  $("#scanKeepBox").hidden = !keepToggle;
+  $("#scanKeep").checked = keepScanning();
+  $("#scanClose").textContent = multi && (!keepToggle || keepScanning()) ? "Done" : "Close";
   $("#scanSkip").hidden = !skip;
   $("#scanCount").textContent = ""; $("#scanCount").dataset.n = "0";
   $("#scanCode").value = "";
@@ -1103,7 +1130,7 @@ async function openScanner(onCode, { title = "Scan barcode", multi = false, onCl
     }, onDecoded, () => {});
     if ($("#scanner").hidden) return stopCamera();
     setupCameraTools();
-    scanMsg(multi ? "Hold the barcode 10–20 cm away, inside the box. Keep scanning, then tap Done." : "Hold the barcode 10–20 cm away, inside the box.");
+    scanMsg(multi && (!keepToggle || keepScanning()) ? "Hold the barcode 10–20 cm away, inside the box. Keep scanning, then tap Done." : "Hold the barcode 10–20 cm away, inside the box.");
   } catch (e) {
     const m = String(e?.name || e?.message || e);
     scanMsg(/NotAllowed|Permission|denied/i.test(m) ? "Camera access is blocked. Allow the camera for this site in your browser settings, or use Photo / type the barcode."
@@ -1221,7 +1248,7 @@ function barcodeSetup(){
 function scanToFind(){
   openScanner(code => {
     const hit = findByCode(code);
-    if (hit) { setTimeout(() => itemDetail(hit.it.id), 0); return { ok: true, text: hit.it.name, close: true }; }
+    if (hit) { itemDetail(hit.it.id); return { ok: true, text: hit.it.name, close: true }; }
     setTimeout(() => unknownCode(code, { onResolved: it => itemDetail(it.id) }), 0);
     return { ok: false, text: "New barcode", close: true };
   }, { title: "Scan to find an item" });
@@ -1242,7 +1269,7 @@ document.addEventListener("keydown", e => {
     const hit = findByCode(code);
     if (!$("#scanner").hidden) { deliverCode(code); return; }
     if (cart && cart.addLine && $("#sheet2").hidden) {
-      if (hit) { cart.addLine(hit.it, ...levelFor(hit.c, hit.it), { fromScan: true }); beep(true); }
+      if (hit) { const line = cart.addLine(hit.it, ...levelFor(hit.c, hit.it), { fromScan: true }); cart.showLine?.(line); beep(true); }
       else { beep(false); unknownCode(code, { layer: 2, onResolved: (it, c) => cart?.addLine(it, ...levelFor(c, it)) }); }
       return;
     }
