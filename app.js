@@ -689,24 +689,24 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
 }
 
 /* ---------- item details ---------- */
-function itemDetail(id){
+function itemDetail(id, { code = null } = {}){
   const it = items.find(x => x.id === id); if (!it) return;
   const st = status(it), hist = moves.filter(m => m.itemId === id).slice(0, 8), s = sizes(it), codes = codesOf(it);
   openSheet(`<h3>${esc(it.name)}</h3>
     <div class="big"><b class="num">${shown(it)}</b><span>${esc(U(it))}</span><span class="pill ${st}">${statusLabel(st)}</span></div>
     ${s.pp || s.pc ? `<p class="pack big-pack">${esc(packText(shown(it), s, U(it)))}</p>` : ""}
+    <div class="inout">
+      <button class="btn act in" type="button" data-quick="in"><span aria-hidden="true">↓</span>Stock in</button>
+      <button class="btn act out" type="button" data-quick="out"><span aria-hidden="true">↑</span>Stock out</button>
+    </div>
     <p class="hint">${esc(it.category)} · warn at ${+it.min||0} ${esc(U(it))}${it.place ? ` · kept at ${esc(it.place)}` : ""}${s.pp||s.pc ? `<br>${esc(sizeText(s, U(it)))}` : ""}</p>
     <div class="codes">${codes.map(c => `<span class="code">${BARCODE_ICON}${esc(c.code)} <small>${esc(codeLabel(c, it))}${c.brand ? ` · ${esc(c.brand)}` : ""}</small></span>`).join("")}
       <button type="button" class="btn sm scan-btn" id="addCodeBtn">${BARCODE_ICON}<span>${codes.length ? "Add another barcode" : "Add barcode"}</span></button></div>
-    <div class="inout">
-      <button class="btn act in" type="button" data-cart="in"><span aria-hidden="true">↓</span>Stock in</button>
-      <button class="btn act out" type="button" data-cart="out"><span aria-hidden="true">↑</span>Stock out</button>
-    </div>
     <h2 style="font-size:1rem">History</h2>
     ${hist.length ? `<ul class="mini-feed">${hist.map(m => moveLi(m,false)).join("")}</ul>` : `<p class="hint">No changes recorded yet.</p>`}
     <div class="actions"><button class="btn danger" type="button" id="delBtn">Delete</button><button class="btn" type="button" id="mergeBtn">Merge…</button><button class="btn" type="button" id="editBtn">Edit details</button></div>`,
   p => {
-    p.querySelectorAll("[data-cart]").forEach(b => b.addEventListener("click", () => openCart(b.dataset.cart, { itemId: id })));
+    p.querySelectorAll("[data-quick]").forEach(b => b.addEventListener("click", () => quickEntry(it, b.dataset.quick, { code })));
     p.querySelector("#editBtn").addEventListener("click", () => itemForm(it));
     p.querySelector("#delBtn").addEventListener("click", () => confirmDelete(it));
     p.querySelector("#mergeBtn").addEventListener("click", () => mergeSheet(it));
@@ -720,6 +720,119 @@ function itemDetail(id){
         return { ok: true, text: `Saved: ${codeLabel(c, it)} barcode`, close: true };
       }, { title: `Add barcode · ${it.name}`, level: it });
     });
+  });
+}
+
+/* ---------- quick entry: one product, stock in or out, any counting method ---------- */
+function countMethods(it){
+  const s = sizes(it), u = U(it), out = [];
+  out.push({ id: "pcs", label: u === "pcs" ? "Pieces" : cap(u), n: 1 });
+  if (s.pp) out.push({ id: "pkt", label: "Packets", n: s.pp });
+  if (s.pc) out.push({ id: "ctn", label: "Cartons", n: s.pc });
+  if (u === "pcs" && s.pp !== 12 && s.pc !== 12) out.push({ id: "dz", label: "Dozen", n: 12 });
+  for (const c of codesOf(it)) if (c.per === "n" && int(c.n) > 1 && !out.some(m => m.n === int(c.n)))
+    out.push({ id: "n" + int(c.n), label: `Box of ${int(c.n)}`, n: int(c.n), brand: c.brand || "" });
+  return out;
+}
+function quickEntry(it, mode = "in", { code = null } = {}){
+  const methods = countMethods(it), u = U(it);
+  // start with the way the scanned barcode counts (e.g. carton), else a sensible default
+  let method = (code && methods.find(m => m.id === (code.per === "n" ? "n" + int(code.n) : code.per))) ||
+               (mode === "in" ? [...methods].filter(m => m.id !== "dz").pop() : methods[0]);
+  let outType = "used";
+  openSheet(`
+    <h3>${esc(it.name)}</h3>
+    <p class="hint qe-have"></p>
+    <div class="seg two mode" role="radiogroup" aria-label="Stock in or out">
+      <input type="radio" name="qMode" id="qm-in" value="in" ${mode==="in"?"checked":""}><label for="qm-in" class="in">↓ Stock in</label>
+      <input type="radio" name="qMode" id="qm-out" value="out" ${mode==="out"?"checked":""}><label for="qm-out" class="out">↑ Stock out</label>
+    </div>
+    <div class="seg three" id="qOut" role="radiogroup" aria-label="Type of stock out">
+      ${Object.entries(OUT_TYPES).map(([k, t], i) => `<input type="radio" name="qOutT" id="qo-${k}" value="${k}" ${i===0?"checked":""}><label for="qo-${k}" class="${k}">${t.label}</label>`).join("")}
+    </div>
+    <form id="fQuick" novalidate class="qe">
+      <label class="qe-lab" for="qNum">How many?</label>
+      <div class="qe-num">
+        <button type="button" class="step big" data-q="-1" aria-label="One less">−</button>
+        <input id="qNum" type="number" inputmode="numeric" min="0" step="1" value="1" aria-label="How many">
+        <button type="button" class="step big" data-q="1" aria-label="One more">+</button>
+      </div>
+      <div class="qe-lab">Counted in</div>
+      <div class="qe-methods" role="radiogroup" aria-label="Counted in">
+        ${methods.map(m => `<input type="radio" name="qMeth" id="qx-${m.id}" value="${m.id}" ${m.id===method.id?"checked":""}><label for="qx-${m.id}"><b>${esc(m.label)}</b>${m.n > 1 ? `<small>${m.n} ${esc(u)}${m.brand ? ` · ${esc(m.brand)}` : ""}</small>` : ""}</label>`).join("")}
+      </div>
+      <div class="qe-total" aria-live="polite"></div>
+      <div class="field" id="qPartyBox"></div>
+      <div class="field"><label for="qNote">Note <span class="opt">optional</span></label><input id="qNote" maxlength="120"></div>
+      <div class="err" id="qErr" role="alert"></div>
+      <div class="actions">
+        <button type="button" class="btn" id="qMore" title="Add more products to this entry">＋ More items</button>
+        <button class="btn primary big-save" type="submit" id="qSave">Save</button>
+      </div>
+    </form>`, p => {
+    const num = p.querySelector("#qNum");
+    const isOut = () => p.querySelector("input[name=qMode]:checked").value === "out";
+    const type = () => isOut() ? outType : "received";
+    const total = () => int(num.value) * method.n;
+    const drawParty = () => {
+      const [label, key, ph] = isOut() ? OUT_TYPES[outType].party : ["Supplier", "suppliers", "e.g. ABC Crockery Traders"];
+      const arr = lists[key] || [], box = p.querySelector("#qPartyBox"), keep = box.querySelector("input")?.value || "";
+      box.innerHTML = `<label for="qParty">${label} <span class="opt">optional</span></label>
+        <input id="qParty" maxlength="60" list="qPartyList" autocomplete="off" placeholder="${esc(ph)}" value="${esc(keep)}">${datalist("qPartyList", arr)}
+        ${arr.length ? `<div class="picks small">${arr.map(v => `<button type="button" class="chip" data-party="${esc(v)}" aria-pressed="${v===keep}">${esc(v)}</button>`).join("")}</div>` : ""}`;
+    };
+    const update = () => {
+      const cur = shown(items.find(x => x.id === it.id) || it), t = total(), out = isOut();
+      p.classList.toggle("is-out", out);
+      p.querySelector("#qOut").hidden = !out;
+      p.querySelector(".qe-have").textContent = `${cur} ${u} in stock${packText(cur, sizes(it), u) ? " · " + packText(cur, sizes(it), u) : ""}`;
+      const after = out ? cur - t : cur + t, k = int(num.value);
+      p.querySelector(".qe-total").innerHTML = !k ? `<span class="muted">Enter how many</span>`
+        : after < 0 ? `<span class="bad">Only ${cur} ${esc(u)} in stock</span>`
+        : `${method.n > 1 ? `${k} ${esc(method.label.toLowerCase())} = ` : ""}<b>${out ? "−" : "+"}${t} ${esc(u)}</b> → stock becomes <b>${after} ${esc(u)}</b>`;
+      const save = p.querySelector("#qSave");
+      save.textContent = out ? `Save ${OUT_TYPES[outType].label.toLowerCase()}` : "Save stock in";
+      save.disabled = !k || after < 0;
+    };
+    p.querySelectorAll("input[name=qMode]").forEach(r => r.addEventListener("change", () => { drawParty(); update(); }));
+    p.querySelectorAll("input[name=qOutT]").forEach(r => r.addEventListener("change", () => { outType = r.value; drawParty(); update(); }));
+    p.querySelectorAll("input[name=qMeth]").forEach(r => r.addEventListener("change", () => { method = methods.find(m => m.id === r.value); update(); num.focus(); num.select(); }));
+    num.addEventListener("input", update);
+    p.querySelectorAll("[data-q]").forEach(b => b.addEventListener("click", () => { num.value = Math.max(0, int(num.value) + +b.dataset.q); update(); }));
+    p.addEventListener("click", e => {
+      const c = e.target.closest("[data-party]"); if (!c) return;
+      p.querySelector("#qParty").value = c.dataset.party;
+      p.querySelectorAll("[data-party]").forEach(x => x.setAttribute("aria-pressed", x === c));
+    });
+    /* add more products: carry this one over into the multi-item list */
+    p.querySelector("#qMore").addEventListener("click", () => {
+      const t = total(), out = isOut(), ot = outType, k = int(num.value), m = method;
+      openCart(out ? "out" : "in", { itemId: it.id });
+      if (cart) {
+        if (out) { const r = cart.p.querySelector(`#co-${ot}`); if (r) { r.checked = true; r.dispatchEvent(new Event("change")); } }
+        const line = cart.lines.find(l => l.id === it.id);
+        if (line && k) { if (m.id === "ctn" || m.id === "pkt") line.qb.add(m.id, k); else line.qb.add("pcs", t); }
+        cart.p.querySelector("#cFind")?.focus();
+      }
+    });
+    p.querySelector("#fQuick").addEventListener("submit", async e => {
+      e.preventDefault();
+      const t = total(), tp = type(), cur = shown(items.find(x => x.id === it.id) || it);
+      if (!t) return p.querySelector("#qErr").textContent = "Enter how many.";
+      if (tp !== "received" && t > cur) return p.querySelector("#qErr").textContent = `Only ${cur} ${u} in stock.`;
+      const party = p.querySelector("#qParty")?.value.trim() || "", note = p.querySelector("#qNote").value.trim();
+      closeSheet(1, true);
+      await commitNudge(it.id);
+      try {
+        const r = await applyMove(it.id, tp, t, note, { party });
+        const label = tp === "received" ? "Stock in" : OUT_TYPES[tp].label;
+        if (r && r.after !== r.before) toast(`${label}: ${t} ${u} · ${it.name}`, { action: "Undo", onAction: async () => {
+          await applyMove(it.id, "count", r.before - r.after, "Undo"); toast("Undone");
+        }});
+      } catch (_) {}
+    });
+    drawParty(); update();
+    setTimeout(() => { num.focus(); num.select(); }, 60);
   });
 }
 
@@ -1248,7 +1361,7 @@ function barcodeSetup(){
 function scanToFind(){
   openScanner(code => {
     const hit = findByCode(code);
-    if (hit) { itemDetail(hit.it.id); return { ok: true, text: hit.it.name, close: true }; }
+    if (hit) { itemDetail(hit.it.id, { code: hit.c }); return { ok: true, text: hit.it.name, close: true }; }
     setTimeout(() => unknownCode(code, { onResolved: it => itemDetail(it.id) }), 0);
     return { ok: false, text: "New barcode", close: true };
   }, { title: "Scan to find an item" });
@@ -1274,7 +1387,7 @@ document.addEventListener("keydown", e => {
       return;
     }
     if (!$("#sheet").hidden) return;
-    if (hit) { beep(true); itemDetail(hit.it.id); }
+    if (hit) { beep(true); itemDetail(hit.it.id, { code: hit.c }); }
     else { beep(false); unknownCode(code, { onResolved: it => itemDetail(it.id) }); }
   } else if (e.key.length === 1) kbBuf += e.key;
 });
@@ -1311,7 +1424,7 @@ $("#q").addEventListener("input", e => { ui.q = e.target.value; renderList(); })
 $("#q").addEventListener("keydown", e => {
   if (e.key !== "Enter") return;
   const hit = findByCode(e.target.value);
-  if (hit) { e.preventDefault(); beep(true); e.target.value = ""; ui.q = ""; renderList(); itemDetail(hit.it.id); }
+  if (hit) { e.preventDefault(); beep(true); e.target.value = ""; ui.q = ""; renderList(); itemDetail(hit.it.id, { code: hit.c }); }
 });
 $("#sort").addEventListener("change", e => { ui.sort = e.target.value; renderList(); });
 $("#chips").addEventListener("click", e => { const c = e.target.closest("[data-cat]"); if (c) { ui.cat = c.dataset.cat; renderChips(); renderList(); } });
