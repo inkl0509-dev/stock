@@ -138,7 +138,18 @@
       <div><h3 id="scanTitle">Scan barcode</h3><span id="scanCount" class="scan-count" data-n="0"></span></div>
       <button class="btn primary sm" type="button" id="scanClose">Done</button>
     </div>
+    <div id="scanLevel" class="seg two scan-level" role="radiogroup" aria-label="This barcode is on a" hidden></div>
     <div class="scan-stage"><div id="scanRegion" class="scan-region"></div><span class="scan-line" aria-hidden="true"></span></div>
+    <div class="scan-tools">
+      <button type="button" class="tool" id="scanTorch" aria-pressed="false" hidden title="Torch">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 2h10l-2 6H9zM9 8h6v13H9zM12 12v3"/></svg><span>Light</span></button>
+      <label class="tool zoom" id="scanZoomBox" hidden><span>Zoom</span><input type="range" id="scanZoom" min="1" max="4" step="0.1" value="1" aria-label="Zoom"></label>
+      <button type="button" class="tool" id="scanPhotoBtn" title="Take a photo of the barcode">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Photo</span></button>
+      <button type="button" class="tool" id="scanSkip" hidden>Skip ›</button>
+      <input type="file" id="scanPhoto" accept="image/*" capture="environment" hidden>
+    </div>
+    <div id="scanFileRegion" hidden></div>
     <p class="scan-msg" id="scanMsg" aria-live="polite">Starting camera…</p>
     <form id="scanManual" class="join scan-manual" novalidate>
       <input id="scanCode" placeholder="Or type the barcode" autocomplete="off" inputmode="text" aria-label="Type a barcode" enterkeyhint="done">
