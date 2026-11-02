@@ -495,3 +495,52 @@ form.join{flex-direction:row}
   .scan-card{padding:12px}
   .scan-stage{aspect-ratio:4/3}
 }
+
+/* list rename */
+.tags li .use{font-family:var(--f-mono);font-size:.72rem;color:var(--muted);margin-left:2px}
+.tags li.editing{background:transparent;padding:0;flex-basis:100%;flex-direction:column;align-items:stretch;gap:4px;border-radius:12px}
+.tag-edit{display:flex;gap:6px;flex-direction:row;align-items:center}
+.tag-edit input{flex:1;min-width:0;border:1px solid var(--accent);background:var(--surface);border-radius:10px;padding:6px 10px;min-height:38px;font-size:16px}
+.tagbtn[data-edit]:hover{color:var(--accent)}
+.tabs.admin-tabs{max-width:520px}
+.add-new-row{display:flex;gap:6px;align-items:center;background:var(--accent-soft);border-radius:10px;padding:8px}
+.add-new-row input{flex:1;min-width:0;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 10px;min-height:40px;font-size:16px}
+
+/* ===== v5: multiple barcodes, merge, setup, better scanner ===== */
+.scan-tools{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.scan-tools .tool{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.1);color:#fff;border:0;border-radius:10px;padding:8px 12px;min-height:40px;font-weight:600;font-size:.88rem;cursor:pointer}
+.scan-tools .tool[aria-pressed="true"]{background:#ffd54a;color:#1a1a1a}
+.scan-tools .tool.zoom{flex:1;min-width:140px;cursor:default}
+.scan-tools .tool.zoom input{flex:1;min-width:0;accent-color:#7fd3f0}
+.scan-tools #scanSkip{margin-left:auto;background:rgba(255,255,255,.2)}
+.seg.scan-level{background:rgba(255,255,255,.08)}
+.seg.scan-level label{color:rgba(255,255,255,.7)}
+.seg.scan-level input:checked+label{background:#fff;color:#11181d}
+.scan-stage{aspect-ratio:4/3}
+
+/* barcodes in the item form */
+.codes-edit{display:flex;flex-direction:column;gap:8px}
+.code-row{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:6px}
+.code-top{display:flex;gap:6px;align-items:center}
+.code-val{flex:1;min-width:0;font-family:var(--f-mono);font-size:16px;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:8px 10px;min-height:40px}
+.code-opts{display:flex;gap:6px;flex-wrap:wrap}
+.code-opts select,.code-opts input{border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 8px;min-height:38px;font-size:15px}
+.code-opts select{flex:0 0 auto}
+.code-opts input[data-k="n"]{width:76px}
+.code-opts input[data-k="brand"]{flex:1;min-width:120px}
+.codes-add{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.none-yet{margin:0}
+
+/* item details */
+.codes{align-items:center}
+.code small{white-space:nowrap}
+.merge-prev{background:var(--accent-soft);border-radius:10px;padding:10px 14px}
+.merge-prev ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+
+/* no-barcode filter + setup */
+.chip.nocode{color:var(--accent);border-color:var(--accent-soft)}
+.chip.nocode[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.setup-banner{display:flex;gap:12px;align-items:center;padding:12px 14px;background:var(--accent-soft);border-bottom:1px solid var(--line)}
+.setup-banner > svg{width:28px;height:28px;color:var(--accent);flex:none}
+.setup-banner div{flex:1;display:flex;flex-direction:column;min-width:0;font-size:.9rem}
+.setup-banner span{color:var(--muted);font-size:.82rem}
