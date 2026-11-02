@@ -41,7 +41,7 @@ const PER_OPTS = [["pcs","Piece"],["pkt","Packet"],["ctn","Carton"],["n","Other 
 
 let items = [], moves = [], loaded = false;
 let unsubs = [];
-const ui = { q:"", cat:"All", sort:"attention" };
+const ui = { q:"", cat:"", sort:"attention" };   // cat "" = nothing chosen: show search + recent items only
 const pending = {};   // quick +/- taps waiting to be saved
 const chains = {};    // one write at a time per document
 let cart = null;      // the open Stock in / Stock out list
@@ -326,9 +326,9 @@ function renderChips(){
   const counts = {}; items.forEach(i => counts[i.category] = (counts[i.category]||0) + 1);
   const low = items.filter(it => status(it) !== "ok").length;
   const noCode = items.filter(it => !codesOf(it).length).length;
-  const cats = ["All", ...(low ? ["Low stock"] : []), ...(noCode ? ["No barcode"] : []), ...lists.categories.filter(c => counts[c]), ...Object.keys(counts).filter(c => !lists.categories.includes(c)).sort()];
-  if (!cats.includes(ui.cat)) ui.cat = "All";
-  $("#chips").innerHTML = cats.map(c => `<button type="button" class="chip ${c==="Low stock"?"warn":c==="No barcode"?"nocode":""}" data-cat="${esc(c)}" aria-pressed="${ui.cat===c}">${esc(c)}<span class="c">${c==="All"?items.length:c==="Low stock"?low:c==="No barcode"?noCode:counts[c]}</span></button>`).join("");
+  const cats = [...(low ? ["Low stock"] : []), ...(noCode ? ["No barcode"] : []), ...lists.categories.filter(c => counts[c]), ...Object.keys(counts).filter(c => !lists.categories.includes(c)).sort(), "All"];
+  if (ui.cat && !cats.includes(ui.cat)) ui.cat = "";
+  $("#chips").innerHTML = cats.map(c => `<button type="button" class="chip ${c==="Low stock"?"warn":c==="No barcode"?"nocode":c==="All"?"allc":""}" data-cat="${esc(c)}" aria-pressed="${ui.cat===c}">${c==="All" ? "All items" : esc(c)}<span class="c">${c==="All"?items.length:c==="Low stock"?low:c==="No barcode"?noCode:counts[c]}</span></button>`).join("");
 }
 
 function matches(it, q){
@@ -339,7 +339,7 @@ function matches(it, q){
 function sorted(){
   const q = ui.q.trim();
   const list = items.filter(it =>
-    (ui.cat === "All" || (ui.cat === "Low stock" ? status(it) !== "ok" : ui.cat === "No barcode" ? !codesOf(it).length : it.category === ui.cat)) && matches(it, q));
+    (!ui.cat || ui.cat === "All" || (ui.cat === "Low stock" ? status(it) !== "ok" : ui.cat === "No barcode" ? !codesOf(it).length : it.category === ui.cat)) && matches(it, q));
   const rank = { out:0, low:1, ok:2 };
   if (ui.sort === "attention") list.sort((a,b) => rank[status(a)] - rank[status(b)] || byName(a,b));
   else if (ui.sort === "name") list.sort(byName);
@@ -357,10 +357,27 @@ function renderList(){
       <button class="btn primary" type="button" data-act="add">＋ Add an item</button></div>`;
     return;
   }
+  $("#sort").hidden = !ui.cat;
+  $("#qClear").hidden = !ui.q;
+  /* nothing searched and no filter: don't list every item */
+  if (!ui.q.trim() && !ui.cat) {
+    const seen = new Set(), recent = [];
+    for (const m of moves) { if (recent.length >= 6) break; const it = items.find(x => x.id === m.itemId); if (it && !seen.has(it.id)) { seen.add(it.id); recent.push(it); } }
+    const attention = items.filter(it => status(it) !== "ok").length;
+    el.innerHTML = `<div class="search-start">
+        <p><b>Search or scan</b> to find an item.</p>
+        <p class="hint">${items.length} items${attention ? ` · <button type="button" class="link" data-act="cat" data-cat="Low stock">${attention} need attention</button>` : ""} · <button type="button" class="link" data-act="cat" data-cat="All">show all</button></p>
+      </div>
+      ${recent.length ? `<div class="recent-h">Recently used</div>` + recent.map(rowHtml).join("") : ""}`;
+    return;
+  }
   const list = sorted();
   const setupBanner = ui.cat === "No barcode" && list.length ? `<div class="setup-banner">${BARCODE_ICON}<div><b>${plural(list.length, "item has", "items have")} no barcode.</b><span>Scan them one after another. Each scan is saved to the item shown.</span></div><button type="button" class="btn primary" data-act="setup">Start</button></div>` : "";
   if (!list.length) { el.innerHTML = `<div class="empty"><h3>Nothing matches</h3><p>Try another search or category.</p><button class="btn" type="button" data-act="clear">Clear search</button></div>`; return; }
-  el.innerHTML = setupBanner + list.map(it => {
+  el.innerHTML = setupBanner + list.map(rowHtml).join("");
+}
+function rowHtml(it){
+  {
     const st = status(it), q = shown(it), m = +it.min||0, s = sizes(it);
     const pct = Math.min(100, m ? (q/(m*2))*100 : (q?100:0));
     const pack = packText(q, s, U(it));
@@ -377,7 +394,7 @@ function renderList(){
         <span class="qty"><b>${q}</b><small>${esc(U(it))}</small></span>
         <button type="button" class="step" data-act="inc" data-id="${it.id}" aria-label="Count one more ${esc(it.name)}">+</button>
       </div></div>`;
-  }).join("");
+  }
 }
 
 function fmtWhen(t){
@@ -1416,7 +1433,8 @@ $("#list").addEventListener("click", e => {
   else if (act === "add") itemForm();
   else if (act === "pick") itemForm(null, { name: b.dataset.name, cat: b.dataset.cat });
   else if (act === "setup") barcodeSetup();
-  else if (act === "clear") { ui.q = ""; ui.cat = "All"; $("#q").value = ""; render(); }
+  else if (act === "clear") { ui.q = ""; ui.cat = ""; $("#q").value = ""; render(); $("#q").focus(); }
+  else if (act === "cat") { ui.cat = b.dataset.cat; renderChips(); renderList(); }
 });
 $("#addBtn").addEventListener("click", () => itemForm());
 $("#actionbar").addEventListener("click", e => {
@@ -1424,14 +1442,23 @@ $("#actionbar").addEventListener("click", e => {
   if (b.dataset.scanfind !== undefined) scanToFind(); else openCart(b.dataset.cart);
 });
 $("#mainScan").addEventListener("click", scanToFind);
-$("#q").addEventListener("input", e => { ui.q = e.target.value; renderList(); });
+$("#q").addEventListener("input", e => { ui.q = e.target.value; showStockTab(); renderList(); });
+$("#qClear").addEventListener("click", () => { ui.q = ""; $("#q").value = ""; renderList(); $("#q").focus(); });
 $("#q").addEventListener("keydown", e => {
   if (e.key !== "Enter") return;
   const hit = findByCode(e.target.value);
   if (hit) { e.preventDefault(); beep(true); e.target.value = ""; ui.q = ""; renderList(); itemDetail(hit.it.id, { code: hit.c }); }
 });
 $("#sort").addEventListener("change", e => { ui.sort = e.target.value; renderList(); });
-$("#chips").addEventListener("click", e => { const c = e.target.closest("[data-cat]"); if (c) { ui.cat = c.dataset.cat; renderChips(); renderList(); } });
+$("#chips").addEventListener("click", e => {
+  const c = e.target.closest("[data-cat]"); if (!c) return;
+  ui.cat = ui.cat === c.dataset.cat ? "" : c.dataset.cat;   // tap again to clear
+  showStockTab(); renderChips(); renderList();
+});
+function showStockTab(){
+  $("#layout").dataset.tab = "stock";
+  document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-selected", String(x.dataset.tab === "stock")));
+}
 document.querySelector(".tabs").addEventListener("click", e => {
   const b = e.target.closest("[data-tab]"); if (!b) return;
   $("#layout").dataset.tab = b.dataset.tab;
