@@ -60,7 +60,7 @@ const byName = (a,b) => a.name.localeCompare(b.name);
 
 const shown = it => Math.max(0, (+it.qty||0) + (pending[it.id]?.delta||0));
 function status(it){ const q = shown(it), m = +it.min||0; return q<=0 ? "out" : q<=m ? "low" : "ok"; }
-const statusLabel = st => st === "ok" ? "In stock" : st === "low" ? "Low" : "Out";
+const statusLabel = st => st === "ok" ? "In stock" : st === "low" ? "⚠ Low" : "✕ Out of stock";
 
 /* ---------- packing: stock is stored in the item's unit (e.g. pieces) ---------- */
 const sizes = it => ({ pp: int(it?.perPacket), pc: int(it?.perCarton) });
@@ -317,7 +317,7 @@ function renderSummary(){
   const broken = sum(m => m.type === "broken" && m.at >= since);
   $("#summary").innerHTML = `
     <div class="tile"><span class="lab">Items</span><span class="val">${items.length}</span><span class="sub">${items.reduce((a,it)=>a+shown(it),0).toLocaleString()} units on hand</span></div>
-    <div class="tile ${low+out?"warn":""}"><span class="lab">Low / out</span><span class="val">${low} / ${out}</span>${low+out?`<button class="link" type="button" id="copyReorder">Copy reorder list</button>`:`<span class="sub">All above minimum</span>`}</div>
+    <div class="tile ${low+out?"warn":""}"><span class="lab">Low / out of stock</span><span class="val"><span class="v-low">${low}</span> <span class="v-sep">/</span> <span class="v-out">${out}</span></span>${low+out?`<button class="link" type="button" id="copyReorder">Copy reorder list</button>`:`<span class="sub">All above minimum</span>`}</div>
     <div class="tile"><span class="lab">Today</span><span class="val">${inToday} <small class="in">in</small> ${outToday} <small class="outw">out</small></span><span class="sub">stock entries</span></div>
     <div class="tile ${broken?"bad":""}"><span class="lab">Broken · 30 days</span><span class="val">${broken}</span><span class="sub">units written off</span></div>`;
 }
