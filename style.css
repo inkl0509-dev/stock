@@ -712,3 +712,32 @@ form.join{flex-direction:row}
 .tile .val .v-low{color:var(--low-ink)}
 .tile .val .v-out{color:var(--bad)}
 .tile .val .v-sep{color:var(--muted);font-weight:400}
+
+/* ===== packing builder ===== */
+.pack-presets{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.pack-presets .chip{background:var(--surface)}
+.pack-presets .chip[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.pack-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-weight:500}
+.pack-row .one{font-family:var(--f-mono);font-weight:600;width:14px;text-align:center}
+.pack-row .pname{width:110px;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 10px;min-height:44px;font-size:16px;font-weight:600}
+.pack-row .pnum{width:84px;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 10px;min-height:44px;font-size:18px;font-family:var(--f-mono);text-align:center}
+.pack-row select{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px;min-height:44px;font-size:16px}
+.pack-row .punit{color:var(--muted)}
+.pack-sum{margin:2px 0 0;background:var(--accent-soft);border-radius:10px;padding:10px 12px;font-size:.92rem}
+.pack-sum.bad{background:var(--bad-soft);color:var(--bad)}
+.pack-only .packing{border:0;padding:0;background:transparent}
+.pack-only .packing summary{display:none}
+.pack-link{font-size:.84rem;text-align:left;align-self:flex-start;padding:2px 0}
+.qe-lab-row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.qe-lab-row .link{font-size:.84rem;letter-spacing:0}
+.pack-row{display:grid;grid-template-columns:14px minmax(64px,1fr) auto 68px minmax(48px,auto);align-items:center;gap:6px;flex-wrap:nowrap}
+.pack-row .pname{width:100%;min-width:0;padding:8px}
+.pack-row .pnum{width:100%;padding:8px 4px}
+.pack-row select{min-width:0;max-width:110px;padding:8px 4px}
+.pack-row .punit{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pack-row .pnum::-webkit-outer-spin-button,.pack-row .pnum::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.pack-row .pnum{-moz-appearance:textfield;appearance:textfield}
+.pack-row{grid-template-columns:12px minmax(80px,1fr) auto 58px minmax(44px,auto);gap:5px}
+.pack-row .pname{font-size:15px;padding:8px 6px}
+.pack-row select{max-width:96px;font-size:15px}
+.pack-row > span:nth-child(3){font-size:.88rem;color:var(--muted)}
