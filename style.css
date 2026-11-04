@@ -679,3 +679,9 @@ form.join{flex-direction:row}
 .qtap b{padding-right:0}
 .qminus{position:static;align-self:flex-end;margin-top:8px}
 @media (min-width:900px){ .tiles{grid-template-columns:repeat(5,1fr)} }
+
+/* add a new item from a category / search */
+.add-bar{padding:10px 12px;border-bottom:1px solid var(--line);background:var(--bg)}
+.add-here{width:100%;border-style:dashed;border-color:var(--accent);color:var(--accent);background:var(--surface);min-height:46px}
+.add-here b{font-weight:700}
+.empty-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
