@@ -1,6 +1,6 @@
 // Service worker: lets the app install, open offline, and update.
 // ⚠️ Change VERSION every time you deploy changes → users see "New version available".
-const VERSION = "2026-11-04-2";
+const VERSION = "2026-11-04-3";
 const CACHE = "crockery-stock-" + VERSION;
 const SHELL = [
   "/", "/index.html", "/admin.html",
