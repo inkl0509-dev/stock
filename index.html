@@ -44,22 +44,22 @@
 </section>
 
 <!-- Main app -->
-<div class="app" id="appView" hidden>
+<div class="app" id="appView" data-view="home" hidden>
   <header class="top">
     <div class="brand">
-      <h1>Crockery Stock</h1>
-      <span class="sub-line"><span id="sync" class="sync">Loading your stock…</span><span class="who" id="who"></span></span>
+      <button type="button" class="back-btn" id="backBtn" aria-label="Back to home">‹</button>
+      <div class="brand-text">
+        <h1 id="viewTitle">Crockery Stock</h1>
+        <span class="sub-line"><span id="sync" class="sync">Loading your stock…</span><span class="who" id="who"></span></span>
+      </div>
     </div>
     <div class="top-actions">
       <button class="btn ghost" type="button" data-install hidden title="Install app">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14"/></svg><span class="lbl">Install</span></button>
       <button class="btn ghost" type="button" id="reloadBtn" title="Reload stock and check for updates">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg><span class="lbl">Reload</span></button>
-      <a class="btn ghost" href="/admin.html" id="adminLink" hidden title="Users and lists">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M17 11h6M20 8v6"/></svg><span class="lbl">Admin</span></a>
       <button id="outBtn" class="btn ghost" type="button" title="Sign out">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg><span class="lbl">Sign out</span></button>
-      <button id="addBtn" class="btn" type="button" title="Add a new item"><span aria-hidden="true">＋</span><span class="lbl">New item</span></button>
     </div>
   </header>
 
@@ -81,7 +81,23 @@
     <div class="chips" id="chips" role="group" aria-label="Category"></div>
   </section>
 
-  <section class="summary" id="summary" aria-label="Stock summary"></section>
+  <!-- HOME: big buttons -->
+  <section id="homeView" class="view" aria-label="Home">
+    <nav class="tiles" id="tiles" aria-label="Main menu"></nav>
+    <section class="summary" id="summary" aria-label="Stock summary"></section>
+  </section>
+
+  <!-- ITEMS -->
+  <section id="itemsView" class="view" aria-label="Items">
+    <p class="hint tip">Tap an item to stock in or out. − / + corrects a count by one.</p>
+    <div class="list" id="list"></div>
+  </section>
+
+  <!-- ACTIVITY -->
+  <section id="activityView" class="view" aria-label="Activity">
+    <div class="side-h"><span class="hint" id="actCount"></span></div>
+    <ul class="feed" id="feed"></ul>
+  </section>
 
   <div class="actionbar" id="actionbar">
     <button class="btn act in" type="button" data-cart="in"><span aria-hidden="true">↓</span>Stock in</button>
@@ -89,25 +105,6 @@
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3M7 8v8M10 8v8M13 8v8M17 8v8"/></svg><span class="lbl">Scan</span></button>
     <button class="btn act out" type="button" data-cart="out"><span aria-hidden="true">↑</span>Stock out</button>
   </div>
-
-  <div class="tabs" role="tablist">
-    <button type="button" role="tab" aria-selected="true" data-tab="stock">Stock</button>
-    <button type="button" role="tab" aria-selected="false" data-tab="activity">Activity</button>
-  </div>
-
-  <main class="layout" id="layout" data-tab="stock">
-    <section class="pane" id="stockPane" aria-label="Items">
-
-      <p class="hint tip">Tap an item to stock in or out. − / + corrects a count by one.</p>
-      <div class="list" id="list"></div>
-    </section>
-
-    <aside class="pane" id="activityPane" aria-label="Activity">
-      <div class="side-h"><h2>Activity</h2><span class="hint" id="actCount"></span></div>
-      <ul class="feed" id="feed"></ul>
-    </aside>
-  </main>
-
 </div>
 
 <!-- iPhone install help -->
