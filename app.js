@@ -145,7 +145,7 @@ onAuthStateChanged(auth, user => {
     startData();
     showAdminLink();
   } else {
-    $("#adminLink").hidden = true;
+    amAdmin = false;
     items = []; moves = []; loaded = false;
     $("#appView").hidden = true; $("#loginView").hidden = false;
     try { $("#lRemember").checked = localStorage.getItem("cs-remember") !== "0"; } catch (_) {}
@@ -195,7 +195,7 @@ $("#lPassToggle").addEventListener("click", () => {
 });
 
 let amAdmin = false;
-function setAdmin(v){ amAdmin = !!v; $("#adminLink").hidden = !amAdmin; }
+function setAdmin(v){ amAdmin = !!v; renderHome(); }
 /* Admin = owner email (admins.js) or listed as admin on Admin → Users (settings/access) */
 function showAdminLink(){
   const email = String(auth.currentUser?.email || "").toLowerCase();
@@ -305,7 +305,7 @@ async function commitNudge(id){
 }
 
 /* ---------- main screen ---------- */
-function render(){ renderSummary(); renderChips(); renderList(); renderFeed(); }
+function render(){ renderHome(); renderSummary(); renderChips(); renderList(); renderFeed(); quickRefresh?.(); }
 
 function renderSummary(){
   const low = items.filter(it => status(it) === "low").length;
@@ -605,6 +605,7 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
         <button class="btn sm" type="button" id="fNewCancel">Cancel</button>
       </div>
       <div class="field"><label for="fPlace">Kept at <span class="opt">optional</span></label><input id="fPlace" maxlength="60" value="${esc(it.place||"")}" placeholder="e.g. Bar shelf B" list="placesList" autocomplete="off">${datalist("placesList", lists.places)}</div>
+      <label class="remember fast-opt" for="fFast"><input type="checkbox" id="fFast" ${it.fast ? "checked" : ""}> <span><b>Fast-moving item</b> (e.g. water). Show it in Daily count and Quick use.</span></label>
       ${sizeFields(it)}
       ${codeFields(it)}
       ${isNew ? `<fieldset class="qbox-wrap"><legend>How many do you have now?</legend><div class="qbox" id="fQty"></div></fieldset>`
@@ -687,7 +688,7 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
         if (c.per === "ctn" && !s.pc) return err.textContent = `Barcode ${c.code} is set as a carton. Enter what 1 carton holds under Packing, or choose “Other qty”.`;
       }
       const base = { name, category: p.querySelector("#fCat").value, unit: unitNow(), min, place: p.querySelector("#fPlace").value.trim(),
-                     perPacket: s.pp, perCarton: s.pc, codes };
+                     perPacket: s.pp, perCarton: s.pc, codes, fast: p.querySelector("#fFast").checked };
       closeSheet(layer, true);
       try {
         let saved;
@@ -1436,13 +1437,12 @@ $("#list").addEventListener("click", e => {
   else if (act === "clear") { ui.q = ""; ui.cat = ""; $("#q").value = ""; render(); $("#q").focus(); }
   else if (act === "cat") { ui.cat = b.dataset.cat; renderChips(); renderList(); }
 });
-$("#addBtn").addEventListener("click", () => itemForm());
 $("#actionbar").addEventListener("click", e => {
   const b = e.target.closest("[data-cart],[data-scanfind]"); if (!b) return;
   if (b.dataset.scanfind !== undefined) scanToFind(); else openCart(b.dataset.cart);
 });
 $("#mainScan").addEventListener("click", scanToFind);
-$("#q").addEventListener("input", e => { ui.q = e.target.value; showStockTab(); renderList(); });
+$("#q").addEventListener("input", e => { ui.q = e.target.value; if (currentView() !== "items") go("items"); else renderList(); });
 $("#qClear").addEventListener("click", () => { ui.q = ""; $("#q").value = ""; renderList(); $("#q").focus(); });
 $("#q").addEventListener("keydown", e => {
   if (e.key !== "Enter") return;
@@ -1453,17 +1453,9 @@ $("#sort").addEventListener("change", e => { ui.sort = e.target.value; renderLis
 $("#chips").addEventListener("click", e => {
   const c = e.target.closest("[data-cat]"); if (!c) return;
   ui.cat = ui.cat === c.dataset.cat ? "" : c.dataset.cat;   // tap again to clear
-  showStockTab(); renderChips(); renderList();
+  renderChips(); renderList();
 });
-function showStockTab(){
-  $("#layout").dataset.tab = "stock";
-  document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-selected", String(x.dataset.tab === "stock")));
-}
-document.querySelector(".tabs").addEventListener("click", e => {
-  const b = e.target.closest("[data-tab]"); if (!b) return;
-  $("#layout").dataset.tab = b.dataset.tab;
-  document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-selected", x === b));
-});
+
 $("#summary").addEventListener("click", async e => {
   if (e.target.id !== "copyReorder") return;
   const lines = items.filter(it => status(it) !== "ok").sort(byName).map(it => {
@@ -1476,3 +1468,289 @@ $("#summary").addEventListener("click", async e => {
   catch (err) { openSheet(`<h3>Reorder list</h3><div class="field"><label for="rl">Select and copy</label><textarea id="rl" rows="8" readonly>${esc(text)}</textarea></div>`, p => p.querySelector("#rl").select()); }
 });
 setInterval(() => { if (moves.length) renderFeed(); }, 60000);
+
+
+/* ================= pages: Home · Items · Activity ================= */
+const VIEWS = { "": "Crockery Stock", items: "Items", activity: "Activity" };
+let fromHome = false;
+function currentView(){ const h = location.hash.slice(1); return Object.hasOwn(VIEWS, h) ? h : ""; }
+function applyView(){
+  const v = currentView();
+  $("#appView").dataset.view = v || "home";
+  $("#viewTitle").textContent = VIEWS[v];
+  document.title = v ? `${VIEWS[v]} · Crockery Stock` : "Crockery Stock";
+  if (v !== "items") { ui.cat = ""; if (!$("#q").matches(":focus")) { ui.q = ""; $("#q").value = ""; } }
+  render();
+  window.scrollTo({ top: 0 });
+}
+function go(view, { cat } = {}){
+  if (cat !== undefined) ui.cat = cat;
+  if (currentView() === view) return applyView();
+  fromHome = currentView() === "";
+  location.hash = view;
+}
+window.addEventListener("hashchange", applyView);
+$("#backBtn").addEventListener("click", () => { if (fromHome) { fromHome = false; history.back(); } else location.hash = ""; });
+
+/* ================= home: big buttons ================= */
+const ICONS = {
+  in:   '<path d="M12 3v11m0 0-4-4m4 4 4-4M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>',
+  out:  '<path d="M12 15V4m0 0-4 4m4-4 4 4M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>',
+  scan: '<path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3M7 8v8M10 8v8M13 8v8M17 8v8"/>',
+  count:'<path d="M9 4h6v3H9zM7 5H5v16h14V5h-2"/><path d="m9 14 2 2 4-4"/>',
+  quick:'<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+  items:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  low:  '<path d="M12 3 2 20h20zM12 10v4M12 17v.5"/>',
+  act:  '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  add:  '<path d="M12 5v14M5 12h14"/>',
+  admin:'<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M17 11h6M20 8v6"/>'
+};
+const ic = k => `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg>`;
+const sameDay = (t, d = new Date()) => new Date(t).toDateString() === d.toDateString();
+const isDailyCount = m => /^Daily count/.test(m.note || "");
+function renderHome(){
+  const el = $("#tiles"); if (!el) return;
+  const fast = items.filter(i => i.fast);
+  const counted = fast.filter(it => moves.some(m => m.itemId === it.id && isDailyCount(m) && sameDay(m.at))).length;
+  const low = items.filter(it => status(it) !== "ok").length;
+  const today = moves.filter(m => sameDay(m.at)).length;
+  const t = (cls, icon, label, sub, attr, badge = 0) =>
+    `<button type="button" class="htile ${cls}" ${attr}>${ic(icon)}<b>${label}</b><small>${sub}</small>${badge ? `<span class="badge">${badge}</span>` : ""}</button>`;
+  el.innerHTML =
+    t("t-in", "in", "Stock in", "Delivery arrived", 'data-cart="in"') +
+    t("t-out", "out", "Stock out", "Use · issue · breakage", 'data-cart="out"') +
+    t("t-scan", "scan", "Scan", "Find by barcode", "data-scanfind") +
+    t("t-count", "count", "Daily count", fast.length ? `${counted} of ${fast.length} counted today` : "Count what's left", 'data-go="count"', fast.length - counted) +
+    t("t-quick", "quick", "Quick use", fast.length ? "Tap when one is taken" : "For water & fast items", 'data-go="quick"') +
+    t("", "items", "Items", `${items.length} items`, 'data-view="items"') +
+    t(low ? "t-warn" : "", "low", "Low stock", low ? `${low} need attention` : "All above minimum", 'data-view="items" data-cat="Low stock"', low) +
+    t("", "act", "Activity", `${today} change${today === 1 ? "" : "s"} today`, 'data-view="activity"') +
+    t("", "add", "New item", "Add a product", 'data-go="new"') +
+    (amAdmin ? `<a class="htile" href="/admin.html" id="adminLink">${ic("admin")}<b>Admin</b><small>Users, units, categories</small></a>` : "");
+}
+$("#tiles").addEventListener("click", e => {
+  const b = e.target.closest(".htile"); if (!b || b.tagName === "A") return;
+  if (b.dataset.cart) return openCart(b.dataset.cart);
+  if (b.hasAttribute("data-scanfind")) return scanToFind();
+  if (b.dataset.view) return go(b.dataset.view, { cat: b.dataset.cat || "" });
+  if (b.dataset.go === "count") return dailyCount();
+  if (b.dataset.go === "quick") return quickUse();
+  if (b.dataset.go === "new") return itemForm();
+});
+
+/* ================= fast items: choose which ones ================= */
+async function setFast(it, on){
+  const updated = { ...it, fast: !!on, updatedAt: Date.now() };
+  Object.assign(it, updated);
+  try { await putItem(updated); } catch (_) {}
+}
+function chooseFast(onDone){
+  openSheet(`<h3>Fast-moving items</h3>
+    <p class="hint">Tick the items you use all day (water, juice, napkins…). They appear in Daily count and Quick use.</p>
+    <div class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="fsQ" type="search" placeholder="Search items" aria-label="Search items" autocomplete="off"></div>
+    <ul class="pick-list" id="fsList"></ul>
+    <div class="actions"><button class="btn primary" type="button" id="fsDone">Done</button></div>`,
+  p => {
+    const draw = () => {
+      const q = p.querySelector("#fsQ").value.trim();
+      const list = items.filter(it => matches(it, q)).sort((a, b) => (b.fast ? 1 : 0) - (a.fast ? 1 : 0) || byName(a, b));
+      p.querySelector("#fsList").innerHTML = list.length ? list.map(it => `<li><label><input type="checkbox" data-fast="${it.id}" ${it.fast ? "checked" : ""}>
+        <span><b>${esc(it.name)}</b><small>${esc(it.category)} · ${shown(it)} ${esc(U(it))}</small></span></label></li>`).join("") : `<li class="none">No items match.</li>`;
+    };
+    p.querySelector("#fsQ").addEventListener("input", draw);
+    p.querySelector("#fsList").addEventListener("change", e => { const it = items.find(x => x.id === e.target.dataset.fast); if (it) setFast(it, e.target.checked); });
+    p.querySelector("#fsDone").addEventListener("click", () => { closeSheet(2, true); onDone && onDone(); });
+    draw();
+  }, { layer: 2 });
+}
+
+/* ================= DAILY COUNT ================= */
+function dailyCount(){
+  const fast = () => items.filter(i => i.fast).sort(byName);
+  if (!fast().length) return chooseFast(() => items.some(i => i.fast) && dailyCount());
+  const lines = new Map();
+  const pn = openSheet(`
+    <div class="cart-head">
+      <h3>Daily count</h3>
+      <p class="hint">Count what's left of each item and enter it. The difference is saved as <b>used</b>, so nobody has to record every bottle.</p>
+      <div class="finder">
+        <button type="button" class="btn" id="dcEdit">Edit list</button>
+        <button type="button" class="btn primary scan-big" id="dcScan">${BARCODE_ICON}<span>Scan</span></button>
+      </div>
+    </div>
+    <div class="cart-body">
+      <div id="dcLines" class="lines"></div>
+      <div class="cart-extra">
+        <div class="field" id="dcPartyBox"></div>
+        <div class="field"><label for="dcNote">Note <span class="opt">optional</span></label><input id="dcNote" maxlength="120" placeholder="e.g. Closing count, bar"></div>
+      </div>
+    </div>
+    <div class="cart-foot">
+      <div class="err" id="dcErr" role="alert"></div>
+      <div class="discard" id="cDiscard" hidden><span>Discard this count?</span><button type="button" class="btn sm" id="cKeep">Keep counting</button><button type="button" class="btn sm danger solid" id="cDrop">Discard</button></div>
+      <div class="foot-row"><span id="dcSum" class="cart-sum"></span><button class="btn primary big-save" type="button" id="dcSave" disabled>Save count</button></div>
+    </div>`, null, { full: true, guard: () => {
+      if (![...lines.values()].some(l => l.touched)) return false;
+      $("#cDiscard").hidden = false; return true;
+    }});
+  pn.classList.add("dc");
+  const arr = lists.outlets || [];
+  pn.querySelector("#dcPartyBox").innerHTML = `<label for="dcParty">Counted at <span class="opt">optional</span></label>
+    <input id="dcParty" maxlength="60" list="dcPartyList" autocomplete="off" placeholder="e.g. Bar, Kitchen">${datalist("dcPartyList", arr)}
+    ${arr.length ? `<div class="picks small">${arr.map(v => `<button type="button" class="chip" data-party="${esc(v)}">${esc(v)}</button>`).join("")}</div>` : ""}`;
+
+  const lastCount = it => moves.find(m => m.itemId === it.id && isDailyCount(m));
+  const foot = () => {
+    const done = [...lines.values()].filter(l => l.touched);
+    const used = done.reduce((a, l) => { const d = shown(l.it) - l.qb.total(); return a + (d > 0 ? d : 0); }, 0);
+    pn.querySelector("#dcSum").innerHTML = `<b>${done.length}</b> of ${lines.size} counted${used ? ` · ${used} used` : ""}`;
+    pn.querySelector("#dcSave").disabled = !done.length;
+    pn.querySelector("#dcSave").textContent = done.length ? `Save count (${done.length})` : "Save count";
+  };
+  const addLine = it => {
+    if (lines.has(it.id)) { const l = lines.get(it.id); l.el.scrollIntoView({ block: "center", behavior: "smooth" }); l.qb.focusFirst(); return l; }
+    const el = document.createElement("div"); el.className = "cline dcline";
+    const last = lastCount(it);
+    el.innerHTML = `<div class="cl-head">
+        <div class="cl-name"><b>${esc(it.name)}</b><span class="hint">App says ${shown(it)} ${esc(U(it))}${last ? ` · last count ${fmtWhen(last.at).toLowerCase()}` : " · not counted yet"}</span></div>
+        <button type="button" class="btn sm none-left">None left</button>
+      </div>
+      <div class="qbox compact" id="dc-${it.id}"></div>`;
+    pn.querySelector("#dcLines").append(el);
+    const line = { it, el, touched: false };
+    line.qb = qtyBox(el.querySelector(".qbox"), () => sizes(it), 0, n => {
+      if (!line.touched) return `<span class="muted">How many are left?</span>`;
+      const d = shown(it) - n;
+      el.classList.toggle("done", true);
+      return d > 0 ? `Left <b>${n}</b> · used <b>${d} ${esc(U(it))}</b> since the app's number`
+        : d < 0 ? `Left <b>${n}</b> · <b>${-d} more</b> than the app has. It will be corrected.`
+        : `Left <b>${n}</b> · matches the app ✓`;
+    }, () => U(it));
+    const touch = () => { line.touched = true; line.qb.refresh(); foot(); };
+    el.querySelector(".qbox").addEventListener("input", touch);
+    el.querySelector(".qbox").addEventListener("click", e => { if (e.target.closest("[data-d]")) touch(); });
+    el.querySelector(".none-left").addEventListener("click", () => { el.querySelectorAll(".qbox input").forEach(i => i.value = ""); touch(); });
+    lines.set(it.id, line);
+    return line;
+  };
+  const drawAll = () => { fast().forEach(addLine); foot(); };
+  drawAll();
+
+  pn.querySelector("#dcEdit").addEventListener("click", () => chooseFast(() => { fast().forEach(addLine); foot(); }));
+  pn.querySelector("#dcScan").addEventListener("click", () => openScanner(code => {
+    const hit = findByCode(code);
+    if (!hit) return { ok: false, text: `${code} isn't on any item.` };
+    if (!hit.it.fast) setFast(hit.it, true);
+    const l = addLine(hit.it); foot();
+    setTimeout(() => { l.el.scrollIntoView({ block: "center", behavior: "smooth" }); l.el.classList.remove("picked"); void l.el.offsetWidth; l.el.classList.add("picked"); l.qb.focusFirst(); }, 50);
+    return { ok: true, text: hit.it.name, close: true };
+  }, { title: "Scan the item you're counting" }));
+  pn.addEventListener("click", e => {
+    const c = e.target.closest("[data-party]"); if (!c) return;
+    pn.querySelector("#dcParty").value = c.dataset.party;
+    pn.querySelectorAll("[data-party]").forEach(x => x.setAttribute("aria-pressed", x === c));
+  });
+  pn.querySelector("#cKeep").addEventListener("click", () => pn.querySelector("#cDiscard").hidden = true);
+  pn.querySelector("#cDrop").addEventListener("click", () => closeSheet(1, true));
+
+  pn.querySelector("#dcSave").addEventListener("click", async () => {
+    const todo = [...lines.values()].filter(l => l.touched).map(l => ({ it: l.it, left: l.qb.total() }));
+    if (!todo.length) return;
+    const party = pn.querySelector("#dcParty").value.trim(), extra = pn.querySelector("#dcNote").value.trim();
+    const note = "Daily count" + (extra ? ` · ${extra}` : "");
+    closeSheet(1, true);
+    const done = []; let used = 0;
+    try {
+      for (const { it, left } of todo) {
+        await commitNudge(it.id);
+        const cur = +items.find(x => x.id === it.id)?.qty || 0, d = cur - left;
+        if (d > 0) { const r = await applyMove(it.id, "used", d, note, { party }); used += d; r && done.push({ id: it.id, ...r }); }
+        else if (d < 0) { const r = await applyMove(it.id, "count", -d, note + " · more than expected", { party }); r && done.push({ id: it.id, ...r }); }
+        else await addMove({ id: uid("m"), itemId: it.id, name: it.name, unit: U(it), type: "count", qty: 0, before: cur, after: cur, note: note + " · no change", party, by: auth.currentUser?.email || "", at: Date.now() });
+      }
+    } catch (_) {}
+    toast(`Daily count saved: ${plural(todo.length, "item", "items")}${used ? `, ${used} used` : ""}`, done.length ? { action: "Undo", onAction: async () => {
+      for (const r of [...done].reverse()) await applyMove(r.id, "count", r.before - r.after, "Undo daily count");
+      toast("Undone");
+    }} : {});
+  });
+}
+
+/* ================= QUICK USE: tap each time one is taken ================= */
+let quickRefresh = null;
+const qPending = {};      // itemId -> { n, t }
+let qLast = [];           // last saved batch, for Undo
+function quickUse(){
+  if (!items.some(i => i.fast)) return chooseFast(() => items.some(i => i.fast) && quickUse());
+  let party = "";
+  const pn = openSheet(`
+    <div class="cart-head">
+      <h3>Quick use</h3>
+      <p class="hint">Tap an item each time one is taken. Taps are saved automatically after a few seconds.</p>
+      <div class="field" id="quPartyBox"></div>
+    </div>
+    <div class="cart-body"><div class="quick-grid" id="quGrid"></div></div>
+    <div class="cart-foot"><div class="foot-row">
+      <button type="button" class="btn" id="quEdit">Edit list</button>
+      <button type="button" class="btn" id="quUndo" disabled>Undo last</button>
+      <button type="button" class="btn primary" id="quDone">Done</button>
+    </div></div>`, null, { full: true, guard: () => { quickFlushAll(); quickRefresh = null; return false; } });
+  const arr = lists.outlets || [];
+  pn.querySelector("#quPartyBox").innerHTML = arr.length ? `<div class="picks small" role="group" aria-label="Used at">${arr.map(v => `<button type="button" class="chip" data-qparty="${esc(v)}">${esc(v)}</button>`).join("")}</div>` : "";
+  pn.querySelector("#quPartyBox").addEventListener("click", e => {
+    const c = e.target.closest("[data-qparty]"); if (!c) return;
+    party = party === c.dataset.qparty ? "" : c.dataset.qparty;
+    pn.querySelectorAll("[data-qparty]").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.qparty === party)));
+  });
+  const draw = () => {
+    const g = pn.querySelector("#quGrid"); if (!g) return;
+    g.innerHTML = items.filter(i => i.fast).sort(byName).map(it => {
+      const pend = qPending[it.id]?.n || 0, left = shown(it) - pend, s = sizes(it);
+      return `<div class="qtile ${left <= 0 ? "empty" : status(it) !== "ok" ? "low" : ""}" data-id="${it.id}">
+        <button type="button" class="qtap" data-take="1" aria-label="Take one ${esc(it.name)}">
+          <b>${esc(it.name)}</b><span class="qleft">${left} ${esc(U(it))} left</span><span class="qminus">−1</span>
+        </button>
+        <div class="qrow2">
+          ${s.pp ? `<button type="button" class="btn sm" data-take="${s.pp}">−1 packet (${s.pp})</button>` : `<button type="button" class="btn sm" data-take="5">−5</button>`}
+          ${pend ? `<span class="qpend">−${pend} saving…</span>` : ""}
+        </div>
+      </div>`;
+    }).join("");
+  };
+  quickRefresh = () => { if (pn.isConnected && !$("#sheet").hidden) draw(); else quickRefresh = null; };
+  pn.querySelector("#quGrid").addEventListener("click", e => {
+    const b = e.target.closest("[data-take]"); if (!b) return;
+    const id = b.closest(".qtile").dataset.id, it = items.find(x => x.id === id), k = +b.dataset.take;
+    const p = qPending[id] || (qPending[id] = { n: 0, t: null, party });
+    if (shown(it) - p.n - k < 0) { beep(false); toast(`Only ${shown(it) - p.n} ${U(it)} of ${it.name} left`); return; }
+    p.n += k; p.party = party; clearTimeout(p.t);
+    p.t = setTimeout(() => quickFlush(id), 2500);
+    try { navigator.vibrate?.(20); } catch (_) {}
+    draw();
+    const tile = pn.querySelector(`.qtile[data-id="${id}"]`); tile?.classList.add("tapped"); setTimeout(() => tile?.classList.remove("tapped"), 180);
+  });
+  pn.querySelector("#quEdit").addEventListener("click", () => { quickFlushAll(); chooseFast(draw); });
+  pn.querySelector("#quDone").addEventListener("click", () => { quickFlushAll(); quickRefresh = null; closeSheet(1, true); });
+  pn.querySelector("#quUndo").addEventListener("click", async () => {
+    const batch = qLast; qLast = []; pn.querySelector("#quUndo").disabled = true;
+    for (const r of [...batch].reverse()) await applyMove(r.id, "count", r.before - r.after, "Undo quick use");
+    toast("Undone"); draw();
+  });
+  draw();
+}
+async function quickFlush(id){
+  const p = qPending[id]; if (!p || !p.n) return;
+  clearTimeout(p.t); delete qPending[id];
+  await commitNudge(id);
+  try {
+    const r = await applyMove(id, "used", p.n, "Quick use", { party: p.party || "" });
+    if (r) { qLast = [{ id, ...r }]; const u = $("#quUndo"); if (u) u.disabled = false; }
+  } catch (_) {}
+  quickRefresh?.();
+}
+function quickFlushAll(){ Object.keys(qPending).forEach(quickFlush); }
+document.addEventListener("visibilitychange", () => { if (document.hidden) quickFlushAll(); });
+window.addEventListener("pagehide", quickFlushAll);
+
+applyView();   // show the right page on start (Home, #items or #activity)
