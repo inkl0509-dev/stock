@@ -373,9 +373,18 @@ function renderList(){
   }
   const list = sorted();
   const setupBanner = ui.cat === "No barcode" && list.length ? `<div class="setup-banner">${BARCODE_ICON}<div><b>${plural(list.length, "item has", "items have")} no barcode.</b><span>Scan them one after another. Each scan is saved to the item shown.</span></div><button type="button" class="btn primary" data-act="setup">Start</button></div>` : "";
-  if (!list.length) { el.innerHTML = `<div class="empty"><h3>Nothing matches</h3><p>Try another search or category.</p><button class="btn" type="button" data-act="clear">Clear search</button></div>`; return; }
-  el.innerHTML = setupBanner + list.map(rowHtml).join("");
+  const cat = realCat(), q = ui.q.trim();
+  const addBar = `<div class="add-bar"><button type="button" class="btn add-here" data-act="addhere">＋ ${cat ? `New item in <b>${esc(cat)}</b>` : "New item"}</button></div>`;
+  if (!list.length) {
+    el.innerHTML = `<div class="empty"><h3>Nothing matches</h3><p>${q ? `No item called “${esc(q)}”${cat ? ` in ${esc(cat)}` : ""}.` : "Try another search or category."}</p>
+      <div class="empty-actions">${q ? `<button class="btn primary" type="button" data-act="addhere">＋ Create “${esc(q)}”${cat ? ` in ${esc(cat)}` : ""}</button>` : ""}
+      <button class="btn" type="button" data-act="clear">Clear search</button></div></div>`;
+    return;
+  }
+  el.innerHTML = setupBanner + (ui.cat && ui.cat !== "Low stock" && ui.cat !== "No barcode" ? addBar : "") + list.map(rowHtml).join("");
 }
+/* the chosen category chip, if it's a real category (not All / Low stock / No barcode) */
+function realCat(){ return ui.cat && !["All", "Low stock", "No barcode"].includes(ui.cat) ? ui.cat : ""; }
 function rowHtml(it){
   {
     const st = status(it), q = shown(it), m = +it.min||0, s = sizes(it);
@@ -594,7 +603,7 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
   openSheet(`<h3>${isNew ? "New item" : "Edit item"}</h3>
     <form id="fItem" novalidate>
       <div class="field"><label for="fName">Item name</label><input id="fName" maxlength="80" value="${esc(it.name)}" placeholder="e.g. Highball glass" autocomplete="off"></div>
-      ${isNew ? `<div class="picks small" id="fPicks">${QUICK_PICKS.map(([n,c]) => `<button type="button" class="chip" data-name="${esc(n)}" data-cat="${esc(c)}">${esc(n)}</button>`).join("")}</div>` : ""}
+      ${isNew && QUICK_PICKS.some(([n, c]) => !preset?.cat || c === preset.cat) ? `<div class="picks small" id="fPicks">${QUICK_PICKS.filter(([n, c]) => !preset?.cat || c === preset.cat).map(([n,c]) => `<button type="button" class="chip" data-name="${esc(n)}" data-cat="${esc(c)}">${esc(n)}</button>`).join("")}</div>` : ""}
       <div class="grid2">
         <div class="field"><label for="fCat">Category</label><select id="fCat" data-list="categories" data-word="category">${options(withCurrent(lists.categories, it.category), it.category)}${NEW_OPT}</select></div>
         <div class="field"><label for="fUnit">Counted in</label><select id="fUnit" data-list="units" data-word="unit">${options(withCurrent(lists.units.length ? lists.units : ["pcs"], U(it)), U(it))}${NEW_OPT}</select></div>
@@ -1433,6 +1442,7 @@ $("#list").addEventListener("click", e => {
   else if (act === "open") itemDetail(id);
   else if (act === "add") itemForm();
   else if (act === "pick") itemForm(null, { name: b.dataset.name, cat: b.dataset.cat });
+  else if (act === "addhere") itemForm(null, { name: ui.q.trim() ? cap(ui.q.trim()) : "", cat: realCat() || undefined });
   else if (act === "setup") barcodeSetup();
   else if (act === "clear") { ui.q = ""; ui.cat = ""; $("#q").value = ""; render(); $("#q").focus(); }
   else if (act === "cat") { ui.cat = b.dataset.cat; renderChips(); renderList(); }
