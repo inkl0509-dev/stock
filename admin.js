@@ -68,7 +68,7 @@ if (location.hash === "#lists") document.querySelector('[data-atab="lists"]').cl
 /* ---------- lists & settings ---------- */
 // field = item field that uses this list (renaming updates those items too)
 const LIST_DEFS = [
-  { key: "units",      title: "Counted in",          help: "Units an item can be counted in.",                      ph: "e.g. pairs",          def: ["pcs","sets","pairs","dozen"], field: "unit" },
+  { key: "units",      title: "Counted in",          help: "Units an item can be counted in.",                      ph: "e.g. pairs",          def: ["pcs","bottles","packets","sets","pairs","dozen"], field: "unit" },
   { key: "categories", title: "Categories",          help: "Groups for the stock list filters.",                    ph: "e.g. Bar tools",      def: ["Glassware","Cutlery","Cups & mugs","Plates & bowls","Serveware","Other"], field: "category" },
   { key: "places",     title: "Storage places",      help: "Where items are kept (shown as “Kept at”).",            ph: "e.g. Bar shelf B",    def: [], field: "place" },
   { key: "suppliers",  title: "Suppliers",           help: "Picked when you record stock received.",                ph: "e.g. ABC Crockery",   def: [] },
