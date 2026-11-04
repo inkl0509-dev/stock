@@ -20,7 +20,7 @@ const db = initializeFirestore(fbApp, {
 /* ---------- constants & state ---------- */
 // Lists admins can edit on the admin page (Firestore: settings/lists). These are the defaults.
 const DEFAULT_LISTS = {
-  units: ["pcs","sets","pairs","dozen"],
+  units: ["pcs","bottles","packets","sets","pairs","dozen"],
   categories: ["Glassware","Cutlery","Cups & mugs","Plates & bowls","Serveware","Other"],
   places: [], suppliers: [], outlets: [],
   reasons: ["Dropped","Dishwasher","Chipped / cracked","Lost","Guest breakage"]
@@ -63,7 +63,12 @@ function status(it){ const q = shown(it), m = +it.min||0; return q<=0 ? "out" : 
 const statusLabel = st => st === "ok" ? "In stock" : st === "low" ? "⚠ Low" : "✕ Out of stock";
 
 /* ---------- packing: stock is stored in the item's unit (e.g. pieces) ---------- */
-const sizes = it => ({ pp: int(it?.perPacket), pc: int(it?.perCarton) });
+// pp = units in 1 small pack, pc = units in 1 big pack; pn / cn = what you call them (box, packet, carton, case…)
+const sizes = it => ({ pp: int(it?.perPacket), pc: int(it?.perCarton),
+  pn: String(it?.packName || "packet").trim().toLowerCase() || "packet", cn: String(it?.cartonName || "carton").trim().toLowerCase() || "carton" });
+const pl = (n, w) => n === 1 ? w : /(s|x|z|ch|sh)$/.test(w) ? w + "es" : /[^aeiou]y$/.test(w) ? w.slice(0, -1) + "ies" : w + "s";
+const PACK_NAMES = ["Packet", "Box", "Pack", "Tray", "Bag", "Roll", "Sleeve"];
+const BIG_NAMES = ["Carton", "Case", "Box", "Crate", "Bundle", "Sack"];
 function split(q, s){
   let rest = Math.max(0, q|0); const out = { ctn:0, pkt:0, pcs:0 };
   if (s.pc) { out.ctn = Math.floor(rest / s.pc); rest -= out.ctn * s.pc; }
@@ -74,15 +79,16 @@ const plural = (n, one, many) => `${n} ${n===1?one:many}`;
 function packText(q, s, unit = "pcs", { always=false } = {}){
   if (!s.pc && !s.pp) return always ? `${q} ${unit}` : "";
   const b = split(q, s), parts = [];
-  if (b.ctn) parts.push(plural(b.ctn,"carton","cartons"));
-  if (b.pkt) parts.push(plural(b.pkt,"packet","packets"));
+  if (b.ctn) parts.push(`${b.ctn} ${pl(b.ctn, s.cn || "carton")}`);
+  if (b.pkt) parts.push(`${b.pkt} ${pl(b.pkt, s.pn || "packet")}`);
   if (b.pcs || !parts.length) parts.push(`${b.pcs} ${unit}`);
   return parts.join(" + ");
 }
 function sizeText(s, unit = "pcs"){
   const bits = [];
-  if (s.pp) bits.push(`1 packet = ${s.pp} ${unit}`);
-  if (s.pc) bits.push(s.pp && s.pc % s.pp === 0 ? `1 carton = ${s.pc/s.pp} packets (${s.pc} ${unit})` : `1 carton = ${s.pc} ${unit}`);
+  const pn = s.pn || "packet", cn = s.cn || "carton";
+  if (s.pp) bits.push(`1 ${pn} = ${s.pp} ${unit}`);
+  if (s.pc) bits.push(s.pp && s.pc % s.pp === 0 ? `1 ${cn} = ${s.pc/s.pp} ${pl(s.pc/s.pp, pn)} (${s.pc} ${unit})` : `1 ${cn} = ${s.pc} ${unit}`);
   return bits.join(" · ");
 }
 /* ---------- barcodes ---------- */
@@ -115,7 +121,8 @@ function levelFor(c, it){
 }
 function codeLabel(c, it){
   const u = U(it), n = codeUnits(c, it);
-  const base = c.per === "ctn" ? "carton" : c.per === "pkt" ? "packet" : c.per === "n" ? `pack of ${n}` : (u === "pcs" ? "piece" : /[^s]s$/.test(u) && !/es$/.test(u) ? u.slice(0, -1) : u);
+  const sz = sizes(it);
+  const base = c.per === "ctn" ? sz.cn : c.per === "pkt" ? sz.pn : c.per === "n" ? `pack of ${n}` : (u === "pcs" ? "piece" : /[^s]s$/.test(u) && !/es$/.test(u) ? u.slice(0, -1) : u);
   return base + (c.per !== "pcs" && c.per !== "n" && n > 1 ? ` (${n} ${u})` : "");
 }
 async function addCodeToItem(it, c){
@@ -477,8 +484,8 @@ function qtyBox(box, getSizes, startPcs, onChange, getUnit = () => "pcs", { smal
     s = getSizes();
     const b = (s.pc || s.pp) ? split(total, s) : { ctn:0, pkt:0, pcs: total };
     const rows = [], u = getUnit(), w = unitWord(u);
-    if (s.pc) rows.push(["ctn","Cartons",`${s.pc} ${u} each`,b.ctn]);
-    if (s.pp) rows.push(["pkt","Packets",`${s.pp} ${u} each`,b.pkt]);
+    if (s.pc) rows.push(["ctn", cap(pl(2, s.cn || "carton")), `${s.pc} ${u} each`, b.ctn]);
+    if (s.pp) rows.push(["pkt", cap(pl(2, s.pn || "packet")), `${s.pp} ${u} each`, b.pkt]);
     rows.push(["pcs", rows.length && !smallFirst ? `Loose ${w}` : cap(w), "", b.pcs]);
     if (smallFirst) rows.reverse();
     box.innerHTML = rows.map(([k,lab,sub,val]) => `
@@ -517,20 +524,34 @@ function qtyBox(box, getSizes, startPcs, onChange, getUnit = () => "pcs", { smal
 /* ---------- item form ---------- */
 function sizeFields(it){
   const s = sizes(it);
-  const cartonInPackets = s.pp && s.pc && s.pc % s.pp === 0;
-  return `<details class="packing" ${s.pp || s.pc ? "open" : ""}>
-    <summary>Packing <span class="hint">(optional) · cartons & packets</span></summary>
-    <div class="grid2">
-      <div class="field"><label for="fPP">Qty in 1 packet</label><input id="fPP" type="number" inputmode="numeric" min="0" step="1" value="${s.pp||""}" placeholder="e.g. 12"></div>
-      <div class="field"><label for="fPC">1 carton holds</label>
-        <div class="join"><input id="fPC" type="number" inputmode="numeric" min="0" step="1" value="${s.pc ? (cartonInPackets ? s.pc/s.pp : s.pc) : ""}" placeholder="e.g. 6">
-        <select id="fPCU" aria-label="Carton holds">
-          <option value="pkt" ${cartonInPackets || (!s.pc && s.pp) ? "selected" : ""}>packets</option>
-          <option value="pcs" ${s.pc && !cartonInPackets ? "selected" : ""}>single units</option>
-        </select></div>
-      </div>
+  const inPk = s.pp && s.pc && s.pc % s.pp === 0;
+  return `<details class="packing" id="fPackBox" ${s.pp || s.pc || it._openPack ? "open" : ""}>
+    <summary>How does it come? <span class="hint">(boxes, packets, cartons · optional)</span></summary>
+    <div class="pack-presets" role="group" aria-label="Quick choices">
+      <button type="button" class="chip" data-preset="none">Single pieces only</button>
+      <button type="button" class="chip" data-preset="box">Box of …</button>
+      <button type="button" class="chip" data-preset="ctn">Carton of …</button>
+      <button type="button" class="chip" data-preset="ctnpkt">Carton → packets</button>
     </div>
-    <p class="hint" id="fSizeHint"></p>
+    <div class="pack-row">
+      <span class="one">1</span>
+      <input id="fPN" class="pname" list="packNamesL" value="${esc(cap(s.pn))}" maxlength="20" aria-label="Small pack name, e.g. Box or Packet">
+      <span>holds</span>
+      <input id="fPP" class="pnum" type="number" inputmode="numeric" min="0" step="1" value="${s.pp||""}" placeholder="12" aria-label="How many in 1 small pack">
+      <span class="punit" id="fPPU"></span>
+    </div>
+    <div class="pack-row">
+      <span class="one">1</span>
+      <input id="fCN" class="pname" list="bigNamesL" value="${esc(cap(s.cn))}" maxlength="20" aria-label="Big pack name, e.g. Carton">
+      <span>holds</span>
+      <input id="fPC" class="pnum" type="number" inputmode="numeric" min="0" step="1" value="${s.pc ? (inPk ? s.pc/s.pp : s.pc) : ""}" placeholder="24" aria-label="How many in 1 big pack">
+      <select id="fPCU" aria-label="Big pack holds">
+        <option value="pkt" ${inPk || (!s.pc && s.pp) ? "selected" : ""}></option>
+        <option value="pcs" ${s.pc && !inPk ? "selected" : ""}></option>
+      </select>
+    </div>
+    ${datalist("packNamesL", PACK_NAMES)}${datalist("bigNamesL", BIG_NAMES)}
+    <p class="pack-sum" id="fSizeHint"></p>
   </details>`;
 }
 function readSizes(p){
@@ -538,8 +559,68 @@ function readSizes(p){
   const n = int(p.querySelector("#fPC").value);
   const unit = p.querySelector("#fPCU").value;
   const pc = n ? (unit === "pkt" ? (pp ? n * pp : 0) : n) : 0;
-  return { pp, pc, bad: n && unit === "pkt" && !pp };
+  const pn = p.querySelector("#fPN").value.trim().toLowerCase() || "packet";
+  const cn = p.querySelector("#fCN").value.trim().toLowerCase() || "carton";
+  return { pp, pc, pn, cn, bad: n && unit === "pkt" && !pp };
 }
+/* labels, live summary and the quick-choice buttons of the packing builder */
+function wirePacking(p, getUnit, after = () => {}){
+  const $p = sel => p.querySelector(sel);
+  const update = () => {
+    const s = readSizes(p), u = getUnit(), n = int($p("#fPC").value);
+    $p("#fPPU").textContent = u;
+    $p('#fPCU option[value="pkt"]').textContent = pl(2, s.pn);
+    $p('#fPCU option[value="pcs"]').textContent = u;
+    $p("#fPCU").disabled = !s.pp && $p("#fPCU").value === "pcs";
+    const h = $p("#fSizeHint");
+    h.classList.toggle("bad", !!s.bad);
+    h.innerHTML = s.bad ? `Enter how many ${esc(u)} are in 1 ${esc(s.pn)} first, or set the ${esc(s.cn)} in ${esc(u)}.`
+      : s.pc && s.pp && $p("#fPCU").value === "pkt" ? `1 ${esc(s.cn)} = <b>${n} ${esc(pl(n, s.pn))}</b> = <b>${s.pc} ${esc(u)}</b>`
+      : s.pc ? `1 ${esc(s.cn)} = <b>${s.pc} ${esc(u)}</b>${s.pp ? ` · 1 ${esc(s.pn)} = <b>${s.pp} ${esc(u)}</b>` : ""}`
+      : s.pp ? `1 ${esc(s.pn)} = <b>${s.pp} ${esc(u)}</b>`
+      : `Comes loose? Leave this empty.`;
+    after(s);
+  };
+  ["#fPP", "#fPC", "#fPN", "#fCN"].forEach(sel => $p(sel).addEventListener("input", update));
+  $p("#fPCU").addEventListener("change", update);
+  $p(".pack-presets").addEventListener("click", e => {
+    const b = e.target.closest("[data-preset]"); if (!b) return;
+    const k = b.dataset.preset;
+    if (k === "none") { $p("#fPP").value = ""; $p("#fPC").value = ""; }
+    if (k === "box")  { $p("#fPN").value = "Box"; $p("#fPC").value = ""; $p("#fPP").focus(); }
+    if (k === "ctn")  { $p("#fCN").value = "Carton"; $p("#fPP").value = ""; $p("#fPCU").value = "pcs"; $p("#fPC").focus(); }
+    if (k === "ctnpkt") { $p("#fPN").value = "Packet"; $p("#fCN").value = "Carton"; $p("#fPCU").value = "pkt"; $p("#fPP").focus(); }
+    p.querySelectorAll("[data-preset]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    update();
+  });
+  update();
+  return { update };
+}
+
+/* set the pack size from inside Stock in, without leaving it */
+function packSetup(it, onDone){
+  openSheet(`<h3>How does ${esc(it.name)} come?</h3>
+    <p class="hint">Counted in <b>${esc(U(it))}</b>. Tell the app what's in a box or carton, then you can stock in by the box or carton.</p>
+    <form id="fPackOnly" novalidate class="pack-only">
+      ${sizeFields({ ...it, _openPack: true })}
+      <div class="err" id="psErr" role="alert"></div>
+      <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div>
+    </form>`, p => {
+    p.querySelector("#fPackBox").open = true;
+    wirePacking(p, () => U(it));
+    p.querySelector("#fPackOnly").addEventListener("submit", async e => {
+      e.preventDefault();
+      const s = readSizes(p);
+      if (s.bad) return p.querySelector("#psErr").textContent = "Fill in the small pack first, or set the big pack in single units.";
+      const updated = { ...it, perPacket: s.pp, perCarton: s.pc, packName: s.pn, cartonName: s.cn, updatedAt: Date.now() };
+      Object.assign(it, updated);
+      closeSheet(2, true);
+      try { await putItem(updated); toast(sizeText(s, U(it)) ? `Saved: ${sizeText(s, U(it))}` : "Saved"); } catch (_) {}
+      onDone && onDone(it);
+    });
+  }, { layer: 2 });
+}
+
 function codeFields(it){
   const n = codesOf(it).length;
   return `<details class="packing" id="fCodesBox" ${n || it._codes ? "open" : ""}>
@@ -553,7 +634,7 @@ function codeFields(it){
   </details>`;
 }
 /* the editable list of barcodes inside the item form */
-function codesEditor(p, startCodes, getUnitNow){
+function codesEditor(p, startCodes, getUnitNow, getSizes = () => ({ pn: "packet", cn: "carton" })){
   let list = startCodes.map(c => ({ ...c }));
   const box = p.querySelector("#fCodes");
   const draw = () => {
@@ -563,7 +644,7 @@ function codesEditor(p, startCodes, getUnitNow){
         <div class="code-top"><input class="code-val" data-k="code" value="${esc(c.code)}" aria-label="Barcode" spellcheck="false" autocomplete="off" inputmode="text">
           <button type="button" class="btn ghost sm" data-rm="${i}" aria-label="Remove barcode ${esc(c.code)}">✕</button></div>
         <div class="code-opts">
-          <select data-k="per" aria-label="One scan is a">${PER_OPTS.map(([v, l]) => `<option value="${v}" ${c.per===v?"selected":""}>${l}</option>`).join("")}</select>
+          <select data-k="per" aria-label="One scan is a">${PER_OPTS.map(([v, l]) => `<option value="${v}" ${c.per===v?"selected":""}>${v === "pkt" ? cap(getSizes().pn) : v === "ctn" ? cap(getSizes().cn) : l}</option>`).join("")}</select>
           <input data-k="n" type="number" min="2" step="1" inputmode="numeric" value="${c.n||""}" placeholder="qty" aria-label="Units per scan" ${c.per==="n"?"":"hidden"}>
           <input data-k="brand" value="${esc(c.brand||"")}" maxlength="40" placeholder="Brand (optional)" aria-label="Brand">
         </div>
@@ -661,21 +742,15 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
       p.querySelector("#fMinU").textContent = unitNow();
       p.querySelector("#fMinHint").textContent = m && (s.pp || s.pc) ? `= ${packText(m, s, unitNow())}` : "Shows a Low alert at this level.";
     };
-    const sizeChanged = () => {
-      const s = getS();
-      p.querySelector("#fSizeHint").textContent = s.bad ? "Enter the qty in 1 packet first, or choose “single units”." : (sizeText(s, unitNow()) || `Leave empty if you only count single ${unitWord(unitNow())}.`);
-      qb?.redraw(); minHint();
-    };
-    ["#fPP","#fPC"].forEach(sel => p.querySelector(sel).addEventListener("input", sizeChanged));
-    ["#fPCU","#fUnit"].forEach(sel => p.querySelector(sel).addEventListener("change", sizeChanged));
+    const packing = wirePacking(p, unitNow, () => { qb?.redraw(); minHint(); });
+    p.querySelector("#fUnit").addEventListener("change", packing.update);
     p.querySelector("#fMin").addEventListener("input", minHint);
-    sizeChanged();
     p.querySelector("#fPicks")?.addEventListener("click", e => {
       const c = e.target.closest("[data-name]"); if (!c) return;
       p.querySelector("#fName").value = c.dataset.name; p.querySelector("#fCat").value = c.dataset.cat; p.querySelector("#fCat").dispatchEvent(new Event("change"));
       p.querySelectorAll("#fPicks .chip").forEach(x => x.setAttribute("aria-pressed", x === c));
     });
-    const ce = codesEditor(p, codesOf(it), unitNow);
+    const ce = codesEditor(p, codesOf(it), unitNow, getS);
     if (!it.name) p.querySelector("#fName").focus();
 
     p.querySelector("#fItem").addEventListener("submit", async e => {
@@ -684,7 +759,7 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
       const name = p.querySelector("#fName").value.trim();
       const s = getS(), qty = qb ? qb.total() : (+it.qty||0), min = int(p.querySelector("#fMin").value);
       if (!name) { p.querySelector("#fName").focus(); return err.textContent = "Give the item a name."; }
-      if (s.bad) return err.textContent = "Enter the qty in 1 packet, or set the carton in single units.";
+      if (s.bad) { p.querySelector("#fPackBox").open = true; return err.textContent = `Enter how many are in 1 ${s.pn}, or set the ${s.cn} in single units.`; }
       if (items.some(x => x.name.toLowerCase() === name.toLowerCase() && (isNew || x.id !== it.id))) return err.textContent = `“${name}” is already in your list.`;
       const codes = ce.get();
       const filled = codes.map(c => normCode(c.code));
@@ -697,7 +772,7 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
         if (c.per === "ctn" && !s.pc) return err.textContent = `Barcode ${c.code} is set as a carton. Enter what 1 carton holds under Packing, or choose “Other qty”.`;
       }
       const base = { name, category: p.querySelector("#fCat").value, unit: unitNow(), min, place: p.querySelector("#fPlace").value.trim(),
-                     perPacket: s.pp, perCarton: s.pc, codes, fast: p.querySelector("#fFast").checked };
+                     perPacket: s.pp, perCarton: s.pc, packName: s.pn, cartonName: s.cn, codes, fast: p.querySelector("#fFast").checked };
       closeSheet(layer, true);
       try {
         let saved;
@@ -758,8 +833,8 @@ function itemDetail(id, { code = null } = {}){
 function countMethods(it){
   const s = sizes(it), u = U(it), out = [];
   out.push({ id: "pcs", label: u === "pcs" ? "Pieces" : cap(u), n: 1 });
-  if (s.pp) out.push({ id: "pkt", label: "Packets", n: s.pp });
-  if (s.pc) out.push({ id: "ctn", label: "Cartons", n: s.pc });
+  if (s.pp) out.push({ id: "pkt", label: cap(pl(2, s.pn)), n: s.pp });
+  if (s.pc) out.push({ id: "ctn", label: cap(pl(2, s.cn)), n: s.pc });
   if (u === "pcs" && s.pp !== 12 && s.pc !== 12) out.push({ id: "dz", label: "Dozen", n: 12 });
   for (const c of codesOf(it)) if (c.per === "n" && int(c.n) > 1 && !out.some(m => m.n === int(c.n)))
     out.push({ id: "n" + int(c.n), label: `Box of ${int(c.n)}`, n: int(c.n), brand: c.brand || "" });
@@ -788,7 +863,7 @@ function quickEntry(it, mode = "in", { code = null } = {}){
         <input id="qNum" type="number" inputmode="numeric" min="0" step="1" value="1" aria-label="How many">
         <button type="button" class="step big" data-q="1" aria-label="One more">+</button>
       </div>
-      <div class="qe-lab">Counted in</div>
+      <div class="qe-lab qe-lab-row"><span>Counted in</span><button type="button" class="link" id="qPack">${sizes(it).pp || sizes(it).pc ? "Change pack size" : "Comes in boxes or cartons? Set pack size"}</button></div>
       <div class="qe-methods" role="radiogroup" aria-label="Counted in">
         ${methods.map(m => `<input type="radio" name="qMeth" id="qx-${m.id}" value="${m.id}" ${m.id===method.id?"checked":""}><label for="qx-${m.id}"><b>${esc(m.label)}</b>${m.n > 1 ? `<small>${m.n} ${esc(u)}${m.brand ? ` · ${esc(m.brand)}` : ""}</small>` : ""}</label>`).join("")}
       </div>
@@ -829,6 +904,14 @@ function quickEntry(it, mode = "in", { code = null } = {}){
     p.querySelectorAll("input[name=qOutT]").forEach(r => r.addEventListener("change", () => { outType = r.value; drawParty(); update(); }));
     p.querySelectorAll("input[name=qMeth]").forEach(r => r.addEventListener("change", () => { method = methods.find(m => m.id === r.value); update(); num.focus(); num.select(); }));
     num.addEventListener("input", update);
+    p.querySelector("#qPack").addEventListener("click", () => {
+      const keep = { n: int(num.value), mode: isOut() ? "out" : "in" };
+      packSetup(it, fresh => {
+        // re-open with the new pack choices; start on the big pack for stock in
+        const z = sizes(fresh), per = keep.mode === "in" ? (z.pc ? "ctn" : z.pp ? "pkt" : "pcs") : "pcs";
+        quickEntry(fresh, keep.mode, { code: { per } });
+      });
+    });
     p.querySelectorAll("[data-q]").forEach(b => b.addEventListener("click", () => { num.value = Math.max(0, int(num.value) + +b.dataset.q); update(); }));
     p.addEventListener("click", e => {
       const c = e.target.closest("[data-party]"); if (!c) return;
@@ -1045,7 +1128,7 @@ function openCart(mode = "in", { itemId = null, per = null, scan = false } = {})
     pn.classList.toggle("is-out", cart.mode === "out");
     pn.querySelector("#cartTitle").textContent = cart.mode === "in" ? "Stock in" : "Stock out";
     pn.querySelector("#outTypes").hidden = cart.mode !== "out";
-    pn.querySelector("#cartHelp").textContent = cart.mode === "in" ? "New stock arrived. Scan or search each item, then enter cartons, packets or pieces." : OUT_TYPES[cart.outType].help;
+    pn.querySelector("#cartHelp").textContent = cart.mode === "in" ? "New stock arrived. Scan or search each item, then enter how many cartons, boxes or pieces came." : OUT_TYPES[cart.outType].help;
     drawParty();
     cart.lines.forEach(l => l.qb.refresh());
     updateFoot();
@@ -1074,18 +1157,23 @@ function openCart(mode = "in", { itemId = null, per = null, scan = false } = {})
           <div class="cl-name"><b>${esc(it.name)}</b><span class="hint cl-have"></span></div>
           <button type="button" class="btn ghost rm" aria-label="Remove ${esc(it.name)} from list">✕</button>
         </div>
-        <div class="qbox compact" id="cq-${k}"></div>`;
+        <div class="qbox compact" id="cq-${k}"></div>
+        <button type="button" class="link pack-link"></button>`;
       pn.querySelector("#cLines").prepend(el);
       line = { id: it.id, el };
-      const s = sizes(it), u = U(it);
-      line.qb = qtyBox(el.querySelector(".qbox"), () => s, 0, t => {
-        const cur = shown(items.find(x => x.id === it.id) || it), out = cart && cart.mode === "out";
+      const live = () => items.find(x => x.id === it.id) || it, u = U(it);
+      const packLink = () => { const z = sizes(live()); el.querySelector(".pack-link").textContent = z.pp || z.pc ? `Pack size: ${sizeText(z, u)} · change` : "Comes in boxes or cartons? Set pack size"; };
+      line.qb = qtyBox(el.querySelector(".qbox"), () => sizes(live()), 0, t => {
+        const s = sizes(live());
+        const cur = shown(live()), out = cart && cart.mode === "out";
         el.querySelector(".cl-have").textContent = `${cur} ${u} in stock${s.pp||s.pc ? ` · ${packText(cur, s, u)}` : ""}`;
         if (!t) return `<span class="muted">Enter how many</span>`;
         const after = out ? cur - t : cur + t;
         return after < 0 ? `<span class="bad">Only ${cur} ${esc(u)} in stock</span>`
                          : `${out ? "−" : "+"}<b>${t} ${esc(u)}</b> → stock <b>${after}</b>`;
       }, () => u, { smallFirst: cart.mode === "out" });
+      packLink();
+      el.querySelector(".pack-link").addEventListener("click", () => packSetup(live(), () => { line.qb.redraw(); packLink(); updateFoot(); }));
       el.querySelector(".rm").addEventListener("click", () => {
         el.remove(); cart.lines = cart.lines.filter(l => l !== line); updateFoot();
       });
@@ -1232,8 +1320,8 @@ function showLevelChoice(it){
   const box = $("#scanLevel");
   if (!it) { box.hidden = true; box.innerHTML = ""; return; }
   const s = sizes(it), opts = [["pcs", U(it) === "pcs" ? "Piece" : cap(U(it))]];
-  if (s.pp) opts.push(["pkt", `Packet (${s.pp})`]);
-  if (s.pc) opts.push(["ctn", `Carton (${s.pc})`]);
+  if (s.pp) opts.push(["pkt", `${cap(s.pn)} (${s.pp})`]);
+  if (s.pc) opts.push(["ctn", `${cap(s.cn)} (${s.pc})`]);
   box.hidden = opts.length < 2;
   box.className = `seg ${opts.length === 3 ? "three" : "two"} scan-level`;
   box.innerHTML = opts.map(([v, l], i) => `<input type="radio" name="scanLv" id="sl-${v}" value="${v}" ${i===0?"checked":""}><label for="sl-${v}">${l}</label>`).join("");
@@ -1470,7 +1558,7 @@ $("#summary").addEventListener("click", async e => {
   if (e.target.id !== "copyReorder") return;
   const lines = items.filter(it => status(it) !== "ok").sort(byName).map(it => {
     const s = sizes(it), need = Math.max(1, (+it.min||0) * 2 - shown(it));
-    const order = s.pc ? plural(Math.ceil(need / s.pc), "carton", "cartons") : s.pp ? plural(Math.ceil(need / s.pp), "packet", "packets") : `${need} ${U(it)}`;
+    const order = s.pc ? `${Math.ceil(need / s.pc)} ${pl(Math.ceil(need / s.pc), s.cn)}` : s.pp ? `${Math.ceil(need / s.pp)} ${pl(Math.ceil(need / s.pp), s.pn)}` : `${need} ${U(it)}`;
     return `${it.name}: have ${shown(it)} ${U(it)} — order ${order}`;
   });
   const text = "Reorder list\n" + lines.join("\n");
@@ -1722,7 +1810,7 @@ function quickUse(){
           <b>${esc(it.name)}</b><span class="qleft">${left} ${esc(U(it))} left</span><span class="qminus">−1</span>
         </button>
         <div class="qrow2">
-          ${s.pp ? `<button type="button" class="btn sm" data-take="${s.pp}">−1 packet (${s.pp})</button>` : `<button type="button" class="btn sm" data-take="5">−5</button>`}
+          ${s.pp ? `<button type="button" class="btn sm" data-take="${s.pp}">−1 ${esc(s.pn)} (${s.pp})</button>` : `<button type="button" class="btn sm" data-take="5">−5</button>`}
           ${pend ? `<span class="qpend">−${pend} saving…</span>` : ""}
         </div>
       </div>`;
