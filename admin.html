@@ -39,8 +39,16 @@
 
   <div class="tabs admin-tabs" role="tablist">
     <button type="button" role="tab" aria-selected="true" data-atab="users">Users</button>
-    <button type="button" role="tab" aria-selected="false" data-atab="lists">Units &amp; categories</button>
+    <button type="button" role="tab" aria-selected="false" data-atab="units">Item units</button>
+    <button type="button" role="tab" aria-selected="false" data-atab="lists">Lists</button>
   </div>
+
+  <section id="unitsPane" class="pane" hidden>
+    <p class="hint">Each item is counted in two units: its <b>main pack</b> (carton, box…) and its <b>single unit</b> (can, spoon…). Example: 1 Carton = 24 cans. Change a row and tap Save.</p>
+    <div class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="iuQ" type="search" placeholder="Search items" aria-label="Search items" autocomplete="off"></div>
+    <div id="iuList" class="iu-list"><div class="empty"><h3>Loading items…</h3></div></div>
+  </section>
 
   <section id="listsPane" class="pane" hidden>
     <p class="hint">These lists fill the dropdowns when staff add items and record stock. Changes save straight away and appear on every device.</p>

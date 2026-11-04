@@ -59,16 +59,19 @@ document.querySelector(".admin-tabs").addEventListener("click", e => {
   document.querySelectorAll("[data-atab]").forEach(x => x.setAttribute("aria-selected", x === b));
   $("#usersPane").hidden = tab !== "users";
   $("#listsPane").hidden = tab !== "lists";
+  $("#unitsPane").hidden = tab !== "units";
+  if (tab === "units") renderUnits();
   $("#addUser").hidden = tab !== "users";
   $("#refreshUsers").hidden = tab !== "users";
-  try { history.replaceState(null, "", tab === "lists" ? "#lists" : "#users"); } catch (_) {}
+  try { history.replaceState(null, "", "#" + tab); } catch (_) {}
 });
-if (location.hash === "#lists") document.querySelector('[data-atab="lists"]').click();
+if (["#lists", "#units"].includes(location.hash)) document.querySelector(`[data-atab="${location.hash.slice(1)}"]`).click();
 
 /* ---------- lists & settings ---------- */
 // field = item field that uses this list (renaming updates those items too)
 const LIST_DEFS = [
-  { key: "units",      title: "Counted in",          help: "Units an item can be counted in.",                      ph: "e.g. pairs",          def: ["pcs","bottles","packets","sets","pairs","dozen"], field: "unit" },
+  { key: "units",      title: "Counted in (single units)", help: "The single unit you count: piece, bottle, can, pack…",                      ph: "e.g. pairs",          def: ["pcs","bottles","cans","packs","boxes","packets","sets","pairs"], field: "unit" },
+  { key: "packings",   title: "Packing units",       help: "What items come in: carton, box, packet… (used in an item's Packing).", ph: "e.g. Sleeve", def: ["Carton","Box","Packet","Case","Tray","Bag","Pack","Crate"] },
   { key: "categories", title: "Categories",          help: "Groups for the stock list filters.",                    ph: "e.g. Bar tools",      def: ["Glassware","Cutlery","Cups & mugs","Plates & bowls","Serveware","Other"], field: "category" },
   { key: "places",     title: "Storage places",      help: "Where items are kept (shown as “Kept at”).",            ph: "e.g. Bar shelf B",    def: [], field: "place" },
   { key: "suppliers",  title: "Suppliers",           help: "Picked when you record stock received.",                ph: "e.g. ABC Crockery",   def: [] },
@@ -77,7 +80,7 @@ const LIST_DEFS = [
 ];
 let listData = null, saving = Promise.resolve(), allItems = [], editing = null;
 function watchItems(){
-  onSnapshot(collection(db, "items"), snap => { allItems = snap.docs.map(d => ({ id: d.id, ...d.data() })); if (listData) renderLists(); }, () => {});
+  onSnapshot(collection(db, "items"), snap => { allItems = snap.docs.map(d => ({ id: d.id, ...d.data() })); if (listData) renderLists(); if (!$("#unitsPane").hidden) renderUnits(); }, () => {});
 }
 const usage = (def, v) => def.field ? allItems.filter(it => (it[def.field] || (def.field === "unit" ? "pcs" : "")) === v).length : 0;
 const listsRef = () => doc(db, "settings", "lists");
@@ -378,3 +381,66 @@ $("#ulist").addEventListener("click", e => {
 
 $("#refreshUsers").addEventListener("click", () => { renderUsers(); toast("Up to date"); });
 $("#uq").addEventListener("input", e => { q = e.target.value; renderUsers(); });
+
+
+/* ---------- Item units: main pack + how many + single unit, for every item ---------- */
+const iuState = {};   // itemId -> edited values not yet saved
+const cap1 = w => w ? w.charAt(0).toUpperCase() + w.slice(1) : w;
+function mainOf(it){
+  const pc = +it.perCarton || 0, pp = +it.perPacket || 0;
+  return pc ? { k: "ctn", name: String(it.cartonName || "carton").toLowerCase(), n: pc }
+       : pp ? { k: "pkt", name: String(it.packName || "packet").toLowerCase(), n: pp } : { k: "ctn", name: "", n: 0 };
+}
+function renderUnits(){
+  const box = $("#iuList"); if (!box) return;
+  if (!isAdmin) { box.innerHTML = `<div class="notice"><b>Admins only.</b><span>Only admins can change item units.</span></div>`; return; }
+  if (document.activeElement && box.contains(document.activeElement)) return;   // don't redraw while typing
+  const q = ($("#iuQ")?.value || "").trim().toLowerCase();
+  const packs = listData?.packings?.length ? listData.packings : ["Carton","Box","Packet","Case","Tray","Bag","Pack","Crate"];
+  const units = listData?.units?.length ? listData.units : ["pcs"];
+  const list = allItems.filter(it => !q || (it.name + " " + (it.category || "")).toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name));
+  if (!list.length) { box.innerHTML = `<div class="empty"><h3>${allItems.length ? "No items match" : "No items yet"}</h3></div>`; return; }
+  box.innerHTML = list.map(it => {
+    const m = mainOf(it), st = iuState[it.id] || { name: m.name, n: m.n, unit: it.unit || "pcs" };
+    const pk = [...packs.map(x => x.toLowerCase())]; if (st.name && !pk.includes(st.name)) pk.push(st.name);
+    const un = [...units]; if (!un.includes(st.unit)) un.push(st.unit);
+    const dirty = !!iuState[it.id];
+    return `<div class="iu-row ${dirty ? "dirty" : ""}" data-id="${it.id}">
+      <div class="iu-name"><b>${esc(it.name)}</b><small>${esc(it.category || "")} · ${+it.qty || 0} ${esc(it.unit || "pcs")} in stock</small></div>
+      <div class="iu-edit">
+        <span class="one">1</span>
+        <select data-f="name" aria-label="Main pack for ${esc(it.name)}"><option value="" ${st.name ? "" : "selected"}>No pack</option>${pk.map(x => `<option value="${esc(x)}" ${x === st.name ? "selected" : ""}>${esc(cap1(x))}</option>`).join("")}</select>
+        <span class="eq">=</span>
+        <input data-f="n" type="number" inputmode="numeric" min="0" step="1" value="${st.n || ""}" placeholder="0" aria-label="How many in 1 pack" ${st.name ? "" : "disabled"}>
+        <select data-f="unit" aria-label="Single unit for ${esc(it.name)}">${un.map(x => `<option value="${esc(x)}" ${x === st.unit ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>
+        <button type="button" class="btn sm primary" data-save ${dirty ? "" : "disabled"}>Save</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+$("#iuQ")?.addEventListener("input", () => { document.activeElement.blur?.(); renderUnits(); $("#iuQ").focus(); });
+$("#iuList").addEventListener("input", e => {
+  const row = e.target.closest(".iu-row"), f = e.target.dataset.f; if (!row || !f) return;
+  const it = allItems.find(x => x.id === row.dataset.id), m = mainOf(it);
+  const st = iuState[it.id] || (iuState[it.id] = { name: m.name, n: m.n, unit: it.unit || "pcs" });
+  st[f] = f === "n" ? Math.max(0, Math.floor(+e.target.value || 0)) : e.target.value;
+  if (f === "name") { const n = row.querySelector('[data-f="n"]'); n.disabled = !st.name; if (st.name) n.focus(); }
+  row.classList.add("dirty"); row.querySelector("[data-save]").disabled = false;
+});
+$("#iuList").addEventListener("change", e => $("#iuList").dispatchEvent(new Event("input", { bubbles: true })) );
+$("#iuList").addEventListener("click", async e => {
+  const b = e.target.closest("[data-save]"); if (!b) return;
+  const row = b.closest(".iu-row"), it = allItems.find(x => x.id === row.dataset.id), st = iuState[it.id]; if (!st) return;
+  if (st.name && !st.n) { toast(`Enter how many ${st.unit} are in 1 ${st.name}.`); row.querySelector('[data-f="n"]').focus(); return; }
+  const m = mainOf(it), upd = { unit: st.unit, updatedAt: Date.now() };
+  if (!st.name) Object.assign(upd, { perCarton: 0, perPacket: 0 });
+  else if (m.k === "pkt" && m.n) Object.assign(upd, { packName: st.name, perPacket: st.n });
+  else Object.assign(upd, { cartonName: st.name, perCarton: st.n });
+  b.disabled = true; b.textContent = "Saving…";
+  try {
+    await updateDoc(doc(db, "items", it.id), upd);
+    delete iuState[it.id];
+    toast(st.name ? `${it.name}: 1 ${st.name} = ${st.n} ${st.unit}` : `${it.name}: counted in ${st.unit}`);
+    document.activeElement?.blur?.(); renderUnits();
+  } catch (ex) { b.disabled = false; b.textContent = "Save"; toast(ex.code === "permission-denied" ? "Only admins can change units. Publish the new firestore.rules in Firebase." : "Couldn't save. Try again."); }
+});

@@ -10,8 +10,22 @@ installs like an app, and keeps working offline.
 
 ## Features
 
-- Stock counted in pieces, with optional **packet** and **carton** sizes
-  (e.g. 1 packet = 12 pcs, 1 carton = 6 packets). Enter and view stock as cartons + packets + pieces.
+- **Home screen with big buttons:** Stock in · Stock out · Scan · Daily count · Quick use · Items · Low stock ·
+  Activity · New item · Admin. Search sits at the top; Items and Activity open as their own pages with a Back button
+  (the phone's back button works too).
+- **Daily count** (for water and other fast items): count what's left, enter it in cartons / packets / pieces, and the
+  app records the difference as *used*. No need to log every bottle. Mark items as **Fast-moving** in Edit item,
+  or with *Edit list* on the Daily count screen.
+- **Quick use:** big tap buttons for fast items (−1, or −1 packet). Taps are grouped and saved automatically
+  after a few seconds, with *Undo last*.
+
+- **Two units per item:** a **main pack** (carton, box…) and a **single unit** (can, spoon, bottle…):
+  *1 Carton = 24 cans*, *1 Box = 12 spoons*. Stock in/out, counts and lists show only these two.
+  Staff choose them when creating an item; only **admins** can change them later (in the item, from Stock in,
+  or on **Admin → Item units**, which lists every item). Firestore rules enforce this.
+- **Correct a wrong entry:** tap an entry in Activity or an item's History → *Correct amount* or *Cancel this entry*.
+  Stock is adjusted by the difference; the original shows as corrected and a *Correction* line records who, when and why.
+  Staff can correct their own entries, admins any.
 - **Stock in / Stock out screen** — works like a shopping list:
   scan or search items, enter cartons / packets / pieces for each, then save everything at once.
   Stock out has three types: **Use** (consumed), **Issue** (to an outlet/event), **Breakage** (with reason).
@@ -135,8 +149,8 @@ python3 -m http.server 8000
 
 ## Data layout
 
-- `items/{id}` — `name, category, unit, qty, min, perPacket, perCarton, place, codes[{code, per, n, brand}], createdAt, updatedAt`
+- `items/{id}` — `name, category, unit, qty, min, perPacket, perCarton, packName, cartonName, place, fast, codes[{code, per, n, brand}], createdAt, updatedAt`
   (`qty`, `min`, `perPacket`, `perCarton` are all in the item's unit, e.g. pieces)
-- `moves/{id}` — `itemId, name, unit, type (received|issued|broken|count), qty, before, after, party (supplier / outlet / reason), note, at`
-- `settings/lists` — `units, categories, places, suppliers, outlets, reasons` (admins only can change)
+- `moves/{id}` — `itemId, name, unit, type (received|used|issued|broken|count), qty, before, after, party, note, by, at, fixOf/fixQty (corrections)`
+- `settings/lists` — `units, packings, categories, places, suppliers, outlets, reasons` (admins only can change)
 - `settings/access` — `admins[], staff[], people{email: {name, addedAt}}` (who can use the app)

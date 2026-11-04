@@ -20,15 +20,24 @@ service cloud.firestore {
     }
 
     // ── STOCK ───────────────────────────────────────────────────────────
-    match /items/{itemId} {
-      allow read: if isMember();
-      allow create, update: if isMember()
-        && request.resource.data.name is string
+    function validItem() {
+      return request.resource.data.name is string
         && request.resource.data.name.size() > 0
         && request.resource.data.qty is number
         && request.resource.data.qty >= 0
         && request.resource.data.min is number
         && request.resource.data.min >= 0;
+    }
+    // an item's units (single unit, main pack and how many it contains): only admins change them
+    function unitsUnchanged() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(["unit", "perCarton", "perPacket", "cartonName", "packName"]);
+    }
+
+    match /items/{itemId} {
+      allow read: if isMember();
+      allow create: if isMember() && validItem();
+      allow update: if isMember() && validItem() && (isAdmin() || unitsUnchanged());
       allow delete: if isMember();
     }
 

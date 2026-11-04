@@ -20,7 +20,8 @@ const db = initializeFirestore(fbApp, {
 /* ---------- constants & state ---------- */
 // Lists admins can edit on the admin page (Firestore: settings/lists). These are the defaults.
 const DEFAULT_LISTS = {
-  units: ["pcs","bottles","packets","sets","pairs","dozen"],
+  units: ["pcs","bottles","cans","packs","boxes","packets","sets","pairs"],
+  packings: ["Carton","Box","Packet","Case","Tray","Bag","Pack","Crate"],
   categories: ["Glassware","Cutlery","Cups & mugs","Plates & bowls","Serveware","Other"],
   places: [], suppliers: [], outlets: [],
   reasons: ["Dropped","Dishwasher","Chipped / cracked","Lost","Guest breakage"]
@@ -64,8 +65,17 @@ const statusLabel = st => st === "ok" ? "In stock" : st === "low" ? "⚠ Low" : 
 
 /* ---------- packing: stock is stored in the item's unit (e.g. pieces) ---------- */
 // pp = units in 1 small pack, pc = units in 1 big pack; pn / cn = what you call them (box, packet, carton, case…)
-const sizes = it => ({ pp: int(it?.perPacket), pc: int(it?.perCarton),
+const rawSizes = it => ({ pp: int(it?.perPacket), pc: int(it?.perCarton),
   pn: String(it?.packName || "packet").trim().toLowerCase() || "packet", cn: String(it?.cartonName || "carton").trim().toLowerCase() || "carton" });
+/* Every item is shown and entered in TWO units only: its main pack (carton, box…) and its single unit (can, spoon…).
+   The main pack is the carton level if set, otherwise the packet level. */
+function sizes(it){
+  const r = rawSizes(it);
+  return r.pc ? { ...r, pp: 0 } : r;
+}
+/* the main pack: { name, n } or null */
+function mainPack(it){ const r = rawSizes(it); return r.pc ? { name: r.cn, n: r.pc, k: "ctn" } : r.pp ? { name: r.pn, n: r.pp, k: "pkt" } : null; }
+const UNIT_KEYS = ["unit", "perCarton", "perPacket", "cartonName", "packName"];
 const pl = (n, w) => n === 1 ? w : /(s|x|z|ch|sh)$/.test(w) ? w + "es" : /[^aeiou]y$/.test(w) ? w.slice(0, -1) + "ies" : w + "s";
 const PACK_NAMES = ["Packet", "Box", "Pack", "Tray", "Bag", "Roll", "Sleeve"];
 const BIG_NAMES = ["Carton", "Case", "Box", "Crate", "Bundle", "Sack"];
@@ -106,7 +116,7 @@ function findByCode(code){
 }
 /* how many units one scan of this barcode is */
 function codeUnits(c, it){
-  const s = sizes(it);
+  const s = rawSizes(it);
   if (c.per === "ctn") return s.pc || 1;
   if (c.per === "pkt") return s.pp || 1;
   if (c.per === "n") return int(c.n) || 1;
@@ -114,14 +124,14 @@ function codeUnits(c, it){
 }
 /* which quantity box (cartons / packets / pieces) a scan adds to */
 function levelFor(c, it){
-  const s = sizes(it);
+  const s = sizes(it);   // only the main pack has its own box; anything else counts as single units
   if (c?.per === "ctn" && s.pc) return ["ctn", 1];
   if (c?.per === "pkt" && s.pp) return ["pkt", 1];
   return ["pcs", c ? codeUnits(c, it) : 0];
 }
 function codeLabel(c, it){
   const u = U(it), n = codeUnits(c, it);
-  const sz = sizes(it);
+  const sz = rawSizes(it);
   const base = c.per === "ctn" ? sz.cn : c.per === "pkt" ? sz.pn : c.per === "n" ? `pack of ${n}` : (u === "pcs" ? "piece" : /[^s]s$/.test(u) && !/es$/.test(u) ? u.slice(0, -1) : u);
   return base + (c.per !== "pcs" && c.per !== "n" && n > 1 ? ` (${n} ${u})` : "");
 }
@@ -283,7 +293,7 @@ const removeItem = id => chain("i/"+id, () => deleteDoc(doc(db,"items",id))).cat
 const addMove    = m  => { const { id, ...body } = m; return setDoc(doc(db,"moves",id), body).catch(writeErr); };
 
 /* change stock and log it. received adds; used/issued/broken subtract; count adds n (may be negative) */
-async function applyMove(itemId, type, n, note, { party = "", batch = "" } = {}){
+async function applyMove(itemId, type, n, note, { party = "", batch = "", extra = {} } = {}){
   const it = items.find(x => x.id === itemId); if (!it) return null;
   const before = +it.qty||0;
   const after = type === "received" ? before + n : type === "count" ? Math.max(0, before + n) : Math.max(0, before - n);
@@ -291,7 +301,7 @@ async function applyMove(itemId, type, n, note, { party = "", batch = "" } = {})
   it.qty = after; render();
   await putItem({ ...it, qty: after, updatedAt: Date.now() });
   await addMove({ id: uid("m"), itemId, name: it.name, unit: U(it), type, qty: type === "count" ? after - before : n,
-    before, after, note: note||"", party: party||"", batch: batch||"", by: auth.currentUser?.email || "", at: Date.now() });
+    before, after, note: note||"", party: party||"", batch: batch||"", by: auth.currentUser?.email || "", at: Date.now(), ...extra });
   return { before, after };
 }
 
@@ -321,7 +331,7 @@ function renderSummary(){
   const sum = f => moves.filter(f).reduce((a,m) => a + (+m.qty||0), 0);
   const inToday = moves.filter(m => m.type === "received" && new Date(m.at).toDateString() === today).length;
   const outToday = moves.filter(m => ["used","issued"].includes(m.type) && new Date(m.at).toDateString() === today).length;
-  const broken = sum(m => m.type === "broken" && m.at >= since);
+  const broken = moves.filter(m => m.type === "broken" && m.at >= since).reduce((a, m) => a + effQty(m), 0);
   $("#summary").innerHTML = `
     <div class="tile"><span class="lab">Items</span><span class="val">${items.length}</span><span class="sub">${items.reduce((a,it)=>a+shown(it),0).toLocaleString()} units on hand</span></div>
     <div class="tile ${low+out?"warn":""}"><span class="lab">Low / out of stock</span><span class="val"><span class="v-low">${low}</span> <span class="v-sep">/</span> <span class="v-out">${out}</span></span>${low+out?`<button class="link" type="button" id="copyReorder">Copy reorder list</button>`:`<span class="sub">All above minimum</span>`}</div>
@@ -423,7 +433,18 @@ function fmtWhen(t){
   if (d.toDateString() === y.toDateString()) return "Yesterday " + hm;
   return d.toLocaleDateString([], { day:"numeric", month:"short" }) + " " + hm;
 }
+/* ---------- corrections: a wrong entry is fixed by a new "Correction" entry (fixOf = original id) ---------- */
+const CORRECTABLE = ["received", "used", "issued", "broken"];
+const fixesFor = id => moves.filter(x => x.fixOf === id).sort((a, b) => a.at - b.at);
+function effQty(m){ const f = fixesFor(m.id); return f.length ? int(f[f.length - 1].fixQty) : +m.qty || 0; }
+const myEmail = () => String(auth.currentUser?.email || "").toLowerCase();
+const canCorrect = m => CORRECTABLE.includes(m.type) && (amAdmin || String(m.by || "").toLowerCase() === myEmail());
+
 function deltaText(m){
+  if (CORRECTABLE.includes(m.type) && fixesFor(m.id).length) {
+    const sign = m.type === "received" ? "+" : "−";
+    return `<s>${sign}${+m.qty||0}</s> ${sign}${effQty(m)}`;
+  }
   const n = +m.qty||0;
   if (m.type === "received") return "+" + n;
   if (["issued","broken","used"].includes(m.type)) return "−" + n;
@@ -431,11 +452,69 @@ function deltaText(m){
 }
 const partyWord = t => t === "received" ? "from" : t === "issued" ? "to" : t === "used" ? "at" : "·";
 function moveLi(m, withName){
-  return `<li><span class="delta ${m.type}">${deltaText(m)}</span><div>
-    <div class="what">${withName ? esc(m.name) + " · " : ""}${TYPE_LABEL[m.type] || m.type}${m.party ? ` ${partyWord(m.type)} ${esc(m.party)}` : ""}</div>
-    <div class="when">${fmtWhen(m.at)} · now ${m.after} ${esc(m.unit||"pcs")}${m.by ? ` · ${esc(m.by.split("@")[0])}` : ""}</div>
-    ${m.note ? `<div class="note">${esc(m.note)}</div>` : ""}</div></li>`;
+  const fixed = CORRECTABLE.includes(m.type) && fixesFor(m.id).length, can = canCorrect(m);
+  const label = m.fixOf ? "Correction" : (TYPE_LABEL[m.type] || m.type);
+  return `<li class="${can ? "can-fix" : ""} ${fixed ? "fixed" : ""} ${m.fixOf ? "is-fix" : ""}" ${can ? `data-mid="${m.id}" tabindex="0" role="button" aria-label="Correct this entry"` : ""}>
+    <span class="delta ${m.fixOf ? "count" : m.type}">${deltaText(m)}</span><div>
+    <div class="what">${withName ? esc(m.name) + " · " : ""}${label}${m.party ? ` ${partyWord(m.type)} ${esc(m.party)}` : ""}${fixed ? ` <span class="pill fixpill">corrected</span>` : ""}</div>
+    <div class="when">${fmtWhen(m.at)}${m.fixOf ? "" : ` · now ${m.after} ${esc(m.unit||"pcs")}`}${m.by ? ` · ${esc(m.by.split("@")[0])}` : ""}</div>
+    ${m.note ? `<div class="note">${esc(m.note)}</div>` : ""}</div>
+    ${can ? `<span class="fix-ico" aria-hidden="true">✎</span>` : ""}</li>`;
 }
+
+/* tap an entry → correct the amount, or cancel the entry */
+function correctEntry(id){
+  const m = moves.find(x => x.id === id); if (!m || !canCorrect(m)) return;
+  const it = items.find(x => x.id === m.itemId);
+  if (!it) return toast("This item was deleted, so the entry can't be changed.");
+  const cur = effQty(m), u = U(it), isIn = m.type === "received";
+  openSheet(`<h3>Correct entry</h3>
+    <div class="fix-orig">
+      <b>${TYPE_LABEL[m.type]} ${cur} ${esc(u)}</b> · ${esc(it.name)}
+      <span class="hint">${fmtWhen(m.at)}${m.by ? ` · by ${esc(m.by.split("@")[0])}` : ""}${m.party ? ` · ${partyWord(m.type)} ${esc(m.party)}` : ""}${cur !== +m.qty ? ` · first entered as ${+m.qty}` : ""}</span>
+    </div>
+    <fieldset class="qbox-wrap"><legend>Correct amount</legend><div class="qbox" id="fxQ"></div></fieldset>
+    <div class="field"><label for="fxNote">Reason <span class="opt">optional</span></label><input id="fxNote" maxlength="80" placeholder="e.g. Typed 72 instead of 48"></div>
+    <div class="err" id="fxErr" role="alert"></div>
+    <div class="actions">
+      <button type="button" class="btn danger" id="fxCancel">Cancel this entry</button>
+      <button type="button" class="btn primary" id="fxSave" disabled>Save correction</button>
+    </div>`, p => {
+    const stockNow = () => shown(items.find(x => x.id === it.id) || it);
+    const qb = qtyBox(p.querySelector("#fxQ"), () => sizes(it), cur, n => {
+      const change = isIn ? n - cur : cur - n, after = stockNow() + change;
+      p.querySelector("#fxSave").disabled = n === cur || after < 0;
+      if (n === cur) return `Same as now: <b>${cur} ${esc(u)}</b>`;
+      if (after < 0) return `<span class="bad">Stock would go below zero (only ${stockNow()} ${esc(u)} left)</span>`;
+      return `${cur} → <b>${n} ${esc(u)}</b> · stock ${change > 0 ? "+" : "−"}${Math.abs(change)} → <b>${after} ${esc(u)}</b>`;
+    }, () => u, { smallFirst: !isIn });
+    const save = async newQ => {
+      const change = isIn ? newQ - cur : cur - newQ, err = p.querySelector("#fxErr");
+      if (stockNow() + change < 0) return err.textContent = `Stock would go below zero. Only ${stockNow()} ${u} left.`;
+      const reason = p.querySelector("#fxNote").value.trim();
+      closeSheet(1, true);
+      await commitNudge(it.id);
+      try {
+        const note = `${newQ === 0 ? "Cancelled" : "Corrected"}: ${TYPE_LABEL[m.type].toLowerCase()} ${cur} → ${newQ} (${fmtWhen(m.at).toLowerCase()})${reason ? ` · ${reason}` : ""}`;
+        const r = await applyMove(it.id, "count", change, note, { extra: { fixOf: m.id, fixQty: newQ } });
+        if (r && r.after === r.before) await addMove({ id: uid("m"), itemId: it.id, name: it.name, unit: u, type: "count", qty: 0, before: r.before, after: r.after, note, party: "", by: myEmail(), at: Date.now(), fixOf: m.id, fixQty: newQ });
+        toast(newQ === 0 ? `Entry cancelled · ${it.name}` : `Corrected to ${newQ} ${u} · ${it.name}`);
+      } catch (_) {}
+    };
+    p.querySelector("#fxSave").addEventListener("click", () => save(qb.total()));
+    p.querySelector("#fxCancel").addEventListener("click", e => {
+      if (e.target.dataset.sure !== "1") { e.target.dataset.sure = "1"; e.target.textContent = "Tap again to cancel it"; return; }
+      save(0);
+    });
+  });
+}
+document.addEventListener("click", e => {
+  const li = e.target.closest("li[data-mid]"); if (!li) return;
+  correctEntry(li.dataset.mid);
+});
+document.addEventListener("keydown", e => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches?.("li[data-mid]")) { e.preventDefault(); correctEntry(e.target.dataset.mid); }
+});
 function renderFeed(){
   const f = $("#feed");
   $("#actCount").textContent = moves.length ? `Last ${moves.length} changes` : "";
@@ -522,100 +601,100 @@ function qtyBox(box, getSizes, startPcs, onChange, getUnit = () => "pcs", { smal
 }
 
 /* ---------- item form ---------- */
-function sizeFields(it){
-  const s = sizes(it);
-  const inPk = s.pp && s.pc && s.pc % s.pp === 0;
-  return `<details class="packing" id="fPackBox" ${s.pp || s.pc || it._openPack ? "open" : ""}>
-    <summary>How does it come? <span class="hint">(boxes, packets, cartons · optional)</span></summary>
-    <div class="pack-presets" role="group" aria-label="Quick choices">
-      <button type="button" class="chip" data-preset="none">Single pieces only</button>
-      <button type="button" class="chip" data-preset="box">Box of …</button>
-      <button type="button" class="chip" data-preset="ctn">Carton of …</button>
-      <button type="button" class="chip" data-preset="ctnpkt">Carton → packets</button>
+/* ---------- units: 1 [Carton ▾] = [24] [cans ▾] ---------- */
+function packOptions(sel){
+  const names = [...(lists.packings?.length ? lists.packings : DEFAULT_LISTS.packings)];
+  if (sel && !names.some(n => n.toLowerCase() === sel.toLowerCase())) names.push(cap(sel));
+  return names.map(n => `<option value="${esc(n.toLowerCase())}" ${sel && n.toLowerCase() === sel.toLowerCase() ? "selected" : ""}>${esc(n)}</option>`).join("")
+    + `<option value="__new">＋ Add new…</option>`;
+}
+function unitOptions(sel){ return options(withCurrent(lists.units.length ? lists.units : ["pcs"], sel), sel) + NEW_OPT; }
+function sizeFields(it, { locked = false } = {}){
+  const r = rawSizes(it), main = mainPack(it);
+  return `<div class="units-card ${locked ? "locked" : ""}" id="fPackBox" data-slot="${main?.k || "ctn"}" data-keeppp="${r.pc ? r.pp : 0}" data-keeppn="${esc(r.pn)}">
+    <div class="uc-title"><b>Units</b><span class="hint">main pack and single unit</span></div>
+    <div class="uc-line">
+      <span class="uc-cap">Main pack</span><span class="uc-cap"></span><span class="uc-cap">Contains</span><span class="uc-cap">Single unit</span>
+      <select id="fOuter" aria-label="Main pack unit" ${locked ? "disabled" : ""}><option value="" ${main ? "" : "selected"}>No pack</option>${packOptions(main?.name || "")}</select>
+      <span class="eq">=</span>
+      <input id="fOuterN" class="pnum" type="number" inputmode="numeric" min="0" step="1" value="${main?.n || ""}" placeholder="0" aria-label="How many single units in 1 main pack" ${locked ? "disabled" : ""}>
+      <select id="fUnit" data-list="units" data-word="unit" aria-label="Single unit" ${locked ? "disabled" : ""}>${unitOptions(U(it))}</select>
     </div>
-    <div class="pack-row">
-      <span class="one">1</span>
-      <input id="fPN" class="pname" list="packNamesL" value="${esc(cap(s.pn))}" maxlength="20" aria-label="Small pack name, e.g. Box or Packet">
-      <span>holds</span>
-      <input id="fPP" class="pnum" type="number" inputmode="numeric" min="0" step="1" value="${s.pp||""}" placeholder="12" aria-label="How many in 1 small pack">
-      <span class="punit" id="fPPU"></span>
-    </div>
-    <div class="pack-row">
-      <span class="one">1</span>
-      <input id="fCN" class="pname" list="bigNamesL" value="${esc(cap(s.cn))}" maxlength="20" aria-label="Big pack name, e.g. Carton">
-      <span>holds</span>
-      <input id="fPC" class="pnum" type="number" inputmode="numeric" min="0" step="1" value="${s.pc ? (inPk ? s.pc/s.pp : s.pc) : ""}" placeholder="24" aria-label="How many in 1 big pack">
-      <select id="fPCU" aria-label="Big pack holds">
-        <option value="pkt" ${inPk || (!s.pc && s.pp) ? "selected" : ""}></option>
-        <option value="pcs" ${s.pc && !inPk ? "selected" : ""}></option>
-      </select>
-    </div>
-    ${datalist("packNamesL", PACK_NAMES)}${datalist("bigNamesL", BIG_NAMES)}
+    <div class="pk-new" id="fPkNew" hidden><input id="fPkNewVal" maxlength="20" placeholder="New pack name, e.g. Crate" aria-label="New pack name"><button type="button" class="btn sm primary" id="fPkNewAdd">Add</button><button type="button" class="btn sm" id="fPkNewCancel">Cancel</button></div>
     <p class="pack-sum" id="fSizeHint"></p>
-  </details>`;
+    ${locked ? `<p class="hint">Only admins can change an item's units.</p>` : ""}
+  </div>`;
 }
 function readSizes(p){
-  const pp = int(p.querySelector("#fPP").value);
-  const n = int(p.querySelector("#fPC").value);
-  const unit = p.querySelector("#fPCU").value;
-  const pc = n ? (unit === "pkt" ? (pp ? n * pp : 0) : n) : 0;
-  const pn = p.querySelector("#fPN").value.trim().toLowerCase() || "packet";
-  const cn = p.querySelector("#fCN").value.trim().toLowerCase() || "carton";
-  return { pp, pc, pn, cn, bad: n && unit === "pkt" && !pp };
+  const $p = sel => p.querySelector(sel), box = $p("#fPackBox");
+  const main = $p("#fOuter").value, n = int($p("#fOuterN").value);
+  if (!main || main === "__new" || !n) return { pp: 0, pc: 0, pn: "packet", cn: "carton", bad: !!main && main !== "__new" && !n, empty: true };
+  if (box.dataset.slot === "pkt") return { pp: n, pc: 0, pn: main, cn: "carton" };
+  // keep an older second pack size (used by packet barcodes) when the carton stays
+  return { pc: n, cn: main, pp: int(box.dataset.keeppp), pn: box.dataset.keeppn || "packet" };
 }
-/* labels, live summary and the quick-choice buttons of the packing builder */
-function wirePacking(p, getUnit, after = () => {}){
+function wirePacking(p, getUnit, after = () => {}, { ownUnit = false } = {}){
   const $p = sel => p.querySelector(sel);
+  let newFor = null;
+  const prev = { fOuter: $p("#fOuter").value, fUnit: $p("#fUnit").value };
   const update = () => {
-    const s = readSizes(p), u = getUnit(), n = int($p("#fPC").value);
-    $p("#fPPU").textContent = u;
-    $p('#fPCU option[value="pkt"]').textContent = pl(2, s.pn);
-    $p('#fPCU option[value="pcs"]').textContent = u;
-    $p("#fPCU").disabled = !s.pp && $p("#fPCU").value === "pcs";
-    const h = $p("#fSizeHint");
-    h.classList.toggle("bad", !!s.bad);
-    h.innerHTML = s.bad ? `Enter how many ${esc(u)} are in 1 ${esc(s.pn)} first, or set the ${esc(s.cn)} in ${esc(u)}.`
-      : s.pc && s.pp && $p("#fPCU").value === "pkt" ? `1 ${esc(s.cn)} = <b>${n} ${esc(pl(n, s.pn))}</b> = <b>${s.pc} ${esc(u)}</b>`
-      : s.pc ? `1 ${esc(s.cn)} = <b>${s.pc} ${esc(u)}</b>${s.pp ? ` · 1 ${esc(s.pn)} = <b>${s.pp} ${esc(u)}</b>` : ""}`
-      : s.pp ? `1 ${esc(s.pn)} = <b>${s.pp} ${esc(u)}</b>`
-      : `Comes loose? Leave this empty.`;
-    after(s);
+    const u = getUnit(), main = $p("#fOuter").value, n = int($p("#fOuterN").value), h = $p("#fSizeHint");
+    $p("#fOuterN").disabled = !main || $p("#fPackBox").classList.contains("locked");
+    h.classList.toggle("bad", !!main && !n);
+    h.innerHTML = !main ? `No pack: counted in single <b>${esc(u)}</b> only.`
+      : !n ? `Enter how many ${esc(u)} are in 1 ${esc(main)}.`
+      : `1 ${esc(main)} = <b>${n} ${esc(u)}</b>`;
+    after(readSizes(p));
   };
-  ["#fPP", "#fPC", "#fPN", "#fCN"].forEach(sel => $p(sel).addEventListener("input", update));
-  $p("#fPCU").addEventListener("change", update);
-  $p(".pack-presets").addEventListener("click", e => {
-    const b = e.target.closest("[data-preset]"); if (!b) return;
-    const k = b.dataset.preset;
-    if (k === "none") { $p("#fPP").value = ""; $p("#fPC").value = ""; }
-    if (k === "box")  { $p("#fPN").value = "Box"; $p("#fPC").value = ""; $p("#fPP").focus(); }
-    if (k === "ctn")  { $p("#fCN").value = "Carton"; $p("#fPP").value = ""; $p("#fPCU").value = "pcs"; $p("#fPC").focus(); }
-    if (k === "ctnpkt") { $p("#fPN").value = "Packet"; $p("#fCN").value = "Carton"; $p("#fPCU").value = "pkt"; $p("#fPP").focus(); }
-    p.querySelectorAll("[data-preset]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
-    update();
+  const showNew = (el, ph) => { newFor = el; $p("#fPkNew").hidden = false; $p("#fPkNewVal").value = ""; $p("#fPkNewVal").placeholder = ph; $p("#fPkNewVal").focus(); };
+  $p("#fOuter").addEventListener("change", e => {
+    const el = e.target;
+    if (el.value !== "__new") { prev.fOuter = el.value; if (el.value) $p("#fOuterN").focus(); return update(); }
+    el.value = prev.fOuter; showNew(el, "New pack name, e.g. Crate");
   });
+  if (ownUnit) $p("#fUnit").addEventListener("change", e => {
+    const el = e.target;
+    if (el.value !== "__new") { prev.fUnit = el.value; return update(); }
+    el.value = prev.fUnit; showNew(el, "New single unit, e.g. cans");
+  });
+  const addNew = async () => {
+    const v = $p("#fPkNewVal").value.trim().replace(/\s+/g, " "); if (!v || !newFor) return;
+    const el = newFor, isUnit = el.id === "fUnit", val = isUnit ? v : v.toLowerCase();
+    if (![...el.options].some(o => o.value.toLowerCase() === val.toLowerCase()))
+      el.querySelector('option[value="__new"]').insertAdjacentHTML("beforebegin", `<option value="${esc(val)}">${esc(isUnit ? v : cap(v))}</option>`);
+    el.value = [...el.options].find(o => o.value.toLowerCase() === val.toLowerCase()).value;
+    prev[el.id] = el.value; $p("#fPkNew").hidden = true; newFor = null;
+    el.dispatchEvent(new Event("change"));
+    if (await addToList(isUnit ? "units" : "packings", isUnit ? v : cap(v))) toast(`Added “${v}” to the list`);
+  };
+  $p("#fPkNewAdd").addEventListener("click", addNew);
+  $p("#fPkNewVal").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addNew(); } if (e.key === "Escape") { e.stopPropagation(); $p("#fPkNew").hidden = true; } });
+  $p("#fPkNewCancel").addEventListener("click", () => { $p("#fPkNew").hidden = true; newFor = null; });
+  $p("#fOuterN").addEventListener("input", update);
   update();
   return { update };
 }
 
-/* set the pack size from inside Stock in, without leaving it */
+/* set the units from inside Stock in (admins), without leaving it */
 function packSetup(it, onDone){
-  openSheet(`<h3>How does ${esc(it.name)} come?</h3>
-    <p class="hint">Counted in <b>${esc(U(it))}</b>. Tell the app what's in a box or carton, then you can stock in by the box or carton.</p>
+  openSheet(`<h3>Units for ${esc(it.name)}</h3>
+    <p class="hint">Choose the main pack and how many single units are in it, e.g. 1 Carton = 24 cans.</p>
     <form id="fPackOnly" novalidate class="pack-only">
-      ${sizeFields({ ...it, _openPack: true })}
+      ${sizeFields(it)}
       <div class="err" id="psErr" role="alert"></div>
       <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Save</button></div>
     </form>`, p => {
-    p.querySelector("#fPackBox").open = true;
-    wirePacking(p, () => U(it));
+    const unitNow = () => { const v = p.querySelector("#fUnit").value; return v && v !== "__new" ? v : "pcs"; };
+    const pk = wirePacking(p, unitNow, () => {}, { ownUnit: true });
+    p.querySelector("#fUnit").addEventListener("change", pk.update);
     p.querySelector("#fPackOnly").addEventListener("submit", async e => {
       e.preventDefault();
       const s = readSizes(p);
-      if (s.bad) return p.querySelector("#psErr").textContent = "Fill in the small pack first, or set the big pack in single units.";
-      const updated = { ...it, perPacket: s.pp, perCarton: s.pc, packName: s.pn, cartonName: s.cn, updatedAt: Date.now() };
+      if (s.bad) return p.querySelector("#psErr").textContent = `Enter how many ${unitNow()} are in 1 ${p.querySelector("#fOuter").value}.`;
+      const updated = { ...it, unit: unitNow(), perPacket: s.pp, perCarton: s.pc, packName: s.pn, cartonName: s.cn, updatedAt: Date.now() };
       Object.assign(it, updated);
       closeSheet(2, true);
-      try { await putItem(updated); toast(sizeText(s, U(it)) ? `Saved: ${sizeText(s, U(it))}` : "Saved"); } catch (_) {}
+      try { await putItem(updated); const m = mainPack(it); toast(m ? `Saved: 1 ${m.name} = ${m.n} ${U(it)}` : `Saved: counted in ${U(it)}`); } catch (_) {}
       onDone && onDone(it);
     });
   }, { layer: 2 });
@@ -687,16 +766,15 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
       ${isNew && QUICK_PICKS.some(([n, c]) => !preset?.cat || c === preset.cat) ? `<div class="picks small" id="fPicks">${QUICK_PICKS.filter(([n, c]) => !preset?.cat || c === preset.cat).map(([n,c]) => `<button type="button" class="chip" data-name="${esc(n)}" data-cat="${esc(c)}">${esc(n)}</button>`).join("")}</div>` : ""}
       <div class="grid2">
         <div class="field"><label for="fCat">Category</label><select id="fCat" data-list="categories" data-word="category">${options(withCurrent(lists.categories, it.category), it.category)}${NEW_OPT}</select></div>
-        <div class="field"><label for="fUnit">Counted in</label><select id="fUnit" data-list="units" data-word="unit">${options(withCurrent(lists.units.length ? lists.units : ["pcs"], U(it)), U(it))}${NEW_OPT}</select></div>
+        <div class="field"><label for="fPlace">Kept at <span class="opt">optional</span></label><input id="fPlace" maxlength="60" value="${esc(it.place||"")}" placeholder="e.g. Bar shelf B" list="placesList" autocomplete="off">${datalist("placesList", lists.places)}</div>
       </div>
+      ${sizeFields(it, { locked: !isNew && !amAdmin })}
       <div class="add-new-row" id="fNewRow" hidden>
         <input id="fNewVal" maxlength="40" autocomplete="off" aria-label="New entry">
         <button class="btn sm primary" type="button" id="fNewAdd">Add</button>
         <button class="btn sm" type="button" id="fNewCancel">Cancel</button>
       </div>
-      <div class="field"><label for="fPlace">Kept at <span class="opt">optional</span></label><input id="fPlace" maxlength="60" value="${esc(it.place||"")}" placeholder="e.g. Bar shelf B" list="placesList" autocomplete="off">${datalist("placesList", lists.places)}</div>
       <label class="remember fast-opt" for="fFast"><input type="checkbox" id="fFast" ${it.fast ? "checked" : ""}> <span><b>Fast-moving item</b> (e.g. water). Show it in Daily count and Quick use.</span></label>
-      ${sizeFields(it)}
       ${codeFields(it)}
       ${isNew ? `<fieldset class="qbox-wrap"><legend>How many do you have now?</legend><div class="qbox" id="fQty"></div></fieldset>`
               : `<p class="hint">Current stock: <b>${shown(it)} ${esc(U(it))}</b>. To change it, use Stock in / Stock out, or the − / + count fix.</p>`}
@@ -744,6 +822,7 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
     };
     const packing = wirePacking(p, unitNow, () => { qb?.redraw(); minHint(); });
     p.querySelector("#fUnit").addEventListener("change", packing.update);
+    const lockedUnits = !isNew && !amAdmin;
     p.querySelector("#fMin").addEventListener("input", minHint);
     p.querySelector("#fPicks")?.addEventListener("click", e => {
       const c = e.target.closest("[data-name]"); if (!c) return;
@@ -759,7 +838,7 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
       const name = p.querySelector("#fName").value.trim();
       const s = getS(), qty = qb ? qb.total() : (+it.qty||0), min = int(p.querySelector("#fMin").value);
       if (!name) { p.querySelector("#fName").focus(); return err.textContent = "Give the item a name."; }
-      if (s.bad) { p.querySelector("#fPackBox").open = true; return err.textContent = `Enter how many are in 1 ${s.pn}, or set the ${s.cn} in single units.`; }
+      if (s.bad && !lockedUnits) return err.textContent = `Units: enter how many ${unitNow()} are in 1 ${p.querySelector("#fOuter").value}.`;
       if (items.some(x => x.name.toLowerCase() === name.toLowerCase() && (isNew || x.id !== it.id))) return err.textContent = `“${name}” is already in your list.`;
       const codes = ce.get();
       const filled = codes.map(c => normCode(c.code));
@@ -773,6 +852,7 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
       }
       const base = { name, category: p.querySelector("#fCat").value, unit: unitNow(), min, place: p.querySelector("#fPlace").value.trim(),
                      perPacket: s.pp, perCarton: s.pc, packName: s.pn, cartonName: s.cn, codes, fast: p.querySelector("#fFast").checked };
+      if (lockedUnits) for (const k of UNIT_KEYS) { if (k in it) base[k] = it[k]; else delete base[k]; }   // staff can't change units
       closeSheet(layer, true);
       try {
         let saved;
@@ -835,9 +915,6 @@ function countMethods(it){
   out.push({ id: "pcs", label: u === "pcs" ? "Pieces" : cap(u), n: 1 });
   if (s.pp) out.push({ id: "pkt", label: cap(pl(2, s.pn)), n: s.pp });
   if (s.pc) out.push({ id: "ctn", label: cap(pl(2, s.cn)), n: s.pc });
-  if (u === "pcs" && s.pp !== 12 && s.pc !== 12) out.push({ id: "dz", label: "Dozen", n: 12 });
-  for (const c of codesOf(it)) if (c.per === "n" && int(c.n) > 1 && !out.some(m => m.n === int(c.n)))
-    out.push({ id: "n" + int(c.n), label: `Box of ${int(c.n)}`, n: int(c.n), brand: c.brand || "" });
   return out;
 }
 function quickEntry(it, mode = "in", { code = null } = {}){
@@ -863,7 +940,7 @@ function quickEntry(it, mode = "in", { code = null } = {}){
         <input id="qNum" type="number" inputmode="numeric" min="0" step="1" value="1" aria-label="How many">
         <button type="button" class="step big" data-q="1" aria-label="One more">+</button>
       </div>
-      <div class="qe-lab qe-lab-row"><span>Counted in</span><button type="button" class="link" id="qPack">${sizes(it).pp || sizes(it).pc ? "Change pack size" : "Comes in boxes or cartons? Set pack size"}</button></div>
+      <div class="qe-lab qe-lab-row"><span>Counted in</span>${amAdmin ? `<button type="button" class="link" id="qPack">${mainPack(it) ? "Change units" : "Comes in cartons or boxes? Set units"}</button>` : ""}</div>
       <div class="qe-methods" role="radiogroup" aria-label="Counted in">
         ${methods.map(m => `<input type="radio" name="qMeth" id="qx-${m.id}" value="${m.id}" ${m.id===method.id?"checked":""}><label for="qx-${m.id}"><b>${esc(m.label)}</b>${m.n > 1 ? `<small>${m.n} ${esc(u)}${m.brand ? ` · ${esc(m.brand)}` : ""}</small>` : ""}</label>`).join("")}
       </div>
@@ -904,7 +981,7 @@ function quickEntry(it, mode = "in", { code = null } = {}){
     p.querySelectorAll("input[name=qOutT]").forEach(r => r.addEventListener("change", () => { outType = r.value; drawParty(); update(); }));
     p.querySelectorAll("input[name=qMeth]").forEach(r => r.addEventListener("change", () => { method = methods.find(m => m.id === r.value); update(); num.focus(); num.select(); }));
     num.addEventListener("input", update);
-    p.querySelector("#qPack").addEventListener("click", () => {
+    p.querySelector("#qPack")?.addEventListener("click", () => {
       const keep = { n: int(num.value), mode: isOut() ? "out" : "in" };
       packSetup(it, fresh => {
         // re-open with the new pack choices; start on the big pack for stock in
@@ -986,7 +1063,7 @@ function mergeSheet(src){
 }
 async function mergeItems(src, tgt){
   await commitNudge(src.id); await commitNudge(tgt.id);
-  const sS = sizes(src), tS = sizes(tgt);
+  const sS = rawSizes(src), tS = rawSizes(tgt);
   const have = codesOf(tgt).map(c => normCode(c.code));
   // keep each moved barcode counting the same number of units it did before
   const moved = codesOf(src).filter(c => !have.includes(normCode(c.code))).map(c => {
@@ -1162,7 +1239,7 @@ function openCart(mode = "in", { itemId = null, per = null, scan = false } = {})
       pn.querySelector("#cLines").prepend(el);
       line = { id: it.id, el };
       const live = () => items.find(x => x.id === it.id) || it, u = U(it);
-      const packLink = () => { const z = sizes(live()); el.querySelector(".pack-link").textContent = z.pp || z.pc ? `Pack size: ${sizeText(z, u)} · change` : "Comes in boxes or cartons? Set pack size"; };
+      const packLink = () => { const mp = mainPack(live()), lk = el.querySelector(".pack-link"); lk.hidden = !amAdmin; lk.textContent = mp ? `1 ${mp.name} = ${mp.n} ${U(live())} · change` : "Comes in cartons or boxes? Set units"; };
       line.qb = qtyBox(el.querySelector(".qbox"), () => sizes(live()), 0, t => {
         const s = sizes(live());
         const cur = shown(live()), out = cart && cart.mode === "out";
@@ -1173,7 +1250,7 @@ function openCart(mode = "in", { itemId = null, per = null, scan = false } = {})
                          : `${out ? "−" : "+"}<b>${t} ${esc(u)}</b> → stock <b>${after}</b>`;
       }, () => u, { smallFirst: cart.mode === "out" });
       packLink();
-      el.querySelector(".pack-link").addEventListener("click", () => packSetup(live(), () => { line.qb.redraw(); packLink(); updateFoot(); }));
+      el.querySelector(".pack-link").addEventListener("click", () => packSetup(live(), () => { line.qb.redraw(); packLink(); updateFoot(); el.querySelector(".cl-have").textContent = ""; line.qb.refresh(); }));
       el.querySelector(".rm").addEventListener("click", () => {
         el.remove(); cart.lines = cart.lines.filter(l => l !== line); updateFoot();
       });
