@@ -50,12 +50,14 @@
       <button type="button" class="back-btn" id="backBtn" aria-label="Back to home">‹</button>
       <div class="brand-text">
         <h1 id="viewTitle">Crockery Stock</h1>
-        <span class="sub-line"><span id="sync" class="sync">Loading your stock…</span><span class="who" id="who"></span></span>
+        <span class="sub-line"><span id="sync" class="sync">Loading your stock…</span><span class="who" id="who"></span><span class="role" id="role"></span></span>
       </div>
     </div>
     <div class="top-actions">
       <button class="btn ghost" type="button" data-install hidden title="Install app">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14"/></svg><span class="lbl">Install</span></button>
+      <a class="btn ghost" href="/admin.html" id="hdrAdmin" hidden title="Admin: users, item units, lists">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M17 11h6M20 8v6"/></svg><span class="lbl">Admin</span></a>
       <button class="btn ghost" type="button" id="reloadBtn" title="Reload stock and check for updates">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg><span class="lbl">Reload</span></button>
       <button id="outBtn" class="btn ghost" type="button" title="Sign out">

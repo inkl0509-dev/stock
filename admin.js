@@ -36,12 +36,14 @@ function watchAccess(){
     access = snap.exists() ? { admins: [], staff: [], people: {}, ...snap.data() } : null;
     isAdmin = isAdminEmail(me()) || !!access?.admins?.includes(me());
     // first visit by the owner: start the list (owner only), so access control switches on
+    let setupFailed = false;
     if (!access && isAdminEmail(me())) {
-      try { await setDoc(accessRef(), { admins: [], staff: [], people: {}, createdAt: Date.now(), createdBy: me() }); } catch (_) {}
-      return;
+      try { await setDoc(accessRef(), { admins: [], staff: [], people: {}, createdAt: Date.now(), createdBy: me() }); return; }
+      catch (_) { setupFailed = true; }   // keep going: show the page anyway
     }
-    $("#addUser").disabled = !isAdmin;
+    $("#addUser").disabled = !isAdmin || setupFailed;
     renderUsers();
+    if (setupFailed) notice(`<b>One step left.</b><span>Firebase blocked saving the user list. Copy everything from <code>firestore.rules</code>, paste it in Firebase console → Firestore Database → <b>Rules</b>, tap <b>Publish</b>, then reload this page.</span>`);
     if (listData) renderLists();
   }, e => {
     $("#addUser").disabled = true;

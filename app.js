@@ -212,7 +212,12 @@ $("#lPassToggle").addEventListener("click", () => {
 });
 
 let amAdmin = false;
-function setAdmin(v){ amAdmin = !!v; renderHome(); }
+function setAdmin(v){
+  amAdmin = !!v; renderHome();
+  $("#hdrAdmin").hidden = !amAdmin;
+  $("#role").textContent = amAdmin ? "Admin" : "Staff";
+  $("#role").className = "role " + (amAdmin ? "admin" : "staff");
+}
 /* Admin = owner email (admins.js) or listed as admin on Admin → Users (settings/access) */
 function showAdminLink(){
   const email = String(auth.currentUser?.email || "").toLowerCase();
@@ -300,9 +305,10 @@ async function applyMove(itemId, type, n, note, { party = "", batch = "", extra 
   if (after === before) return { before, after };
   it.qty = after; render();
   await putItem({ ...it, qty: after, updatedAt: Date.now() });
-  await addMove({ id: uid("m"), itemId, name: it.name, unit: U(it), type, qty: type === "count" ? after - before : n,
+  const id = uid("m");
+  await addMove({ id, itemId, name: it.name, unit: U(it), type, qty: type === "count" ? after - before : n,
     before, after, note: note||"", party: party||"", batch: batch||"", by: auth.currentUser?.email || "", at: Date.now(), ...extra });
-  return { before, after };
+  return { before, after, moveId: id };
 }
 
 /* quick +/- on a row: taps are combined into one saved change */
@@ -453,13 +459,39 @@ function deltaText(m){
 const partyWord = t => t === "received" ? "from" : t === "issued" ? "to" : t === "used" ? "at" : "·";
 function moveLi(m, withName){
   const fixed = CORRECTABLE.includes(m.type) && fixesFor(m.id).length, can = canCorrect(m);
-  const label = m.fixOf ? "Correction" : (TYPE_LABEL[m.type] || m.type);
+  const label = m.fixOf ? "Correction" : /^Stock fixed/.test(m.note || "") ? "Stock fixed" : (TYPE_LABEL[m.type] || m.type);
   return `<li class="${can ? "can-fix" : ""} ${fixed ? "fixed" : ""} ${m.fixOf ? "is-fix" : ""}" ${can ? `data-mid="${m.id}" tabindex="0" role="button" aria-label="Correct this entry"` : ""}>
     <span class="delta ${m.fixOf ? "count" : m.type}">${deltaText(m)}</span><div>
     <div class="what">${withName ? esc(m.name) + " · " : ""}${label}${m.party ? ` ${partyWord(m.type)} ${esc(m.party)}` : ""}${fixed ? ` <span class="pill fixpill">corrected</span>` : ""}</div>
     <div class="when">${fmtWhen(m.at)}${m.fixOf ? "" : ` · now ${m.after} ${esc(m.unit||"pcs")}`}${m.by ? ` · ${esc(m.by.split("@")[0])}` : ""}</div>
     ${m.note ? `<div class="note">${esc(m.note)}</div>` : ""}</div>
-    ${can ? `<span class="fix-ico" aria-hidden="true">✎</span>` : ""}</li>`;
+    ${can ? `<span class="fix-ico" aria-hidden="true">✎ Edit</span>` : ""}</li>`;
+}
+
+/* set the real amount on hand when the app's number is wrong */
+function fixStock(it){
+  const u = U(it), cur = shown(it);
+  openSheet(`<h3>Fix stock · ${esc(it.name)}</h3>
+    <p class="hint">The app says <b>${cur} ${esc(u)}</b>. Enter how many you really have. The difference is saved as a correction.</p>
+    <fieldset class="qbox-wrap"><legend>Real amount on hand</legend><div class="qbox" id="fsQ"></div></fieldset>
+    <div class="field"><label for="fsNote">Reason <span class="opt">optional</span></label><input id="fsNote" maxlength="80" placeholder="e.g. Entered 240 instead of 24"></div>
+    <p class="hint">To fix one wrong entry instead, tap <b>Edit</b> on it in History.</p>
+    <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn primary" id="fsSave" disabled>Save</button></div>`, p => {
+    const qb = qtyBox(p.querySelector("#fsQ"), () => sizes(it), cur, n => {
+      p.querySelector("#fsSave").disabled = n === cur;
+      return n === cur ? `Same as now: <b>${cur} ${esc(u)}</b>` : `${cur} → <b>${n} ${esc(u)}</b> · ${n > cur ? "+" : "−"}${Math.abs(n - cur)}`;
+    }, () => u);
+    p.querySelector("#fsSave").addEventListener("click", async () => {
+      const n = qb.total(), reason = p.querySelector("#fsNote").value.trim();
+      closeSheet(1, true);
+      await commitNudge(it.id);
+      const before = shown(items.find(x => x.id === it.id) || it);
+      try {
+        const r = await applyMove(it.id, "count", n - before, `Stock fixed: ${before} → ${n}${reason ? ` · ${reason}` : ""}`);
+        toast(`${it.name}: stock is now ${n} ${u}`, r && r.after !== r.before ? { actions: [{ label: "Undo", fn: async () => { await applyMove(it.id, "count", r.before - r.after, "Undo stock fix"); toast("Undone"); } }] } : {});
+      } catch (_) {}
+    });
+  });
 }
 
 /* tap an entry → correct the amount, or cancel the entry */
@@ -879,7 +911,8 @@ function itemDetail(id, { code = null } = {}){
   const it = items.find(x => x.id === id); if (!it) return;
   const st = status(it), hist = moves.filter(m => m.itemId === id).slice(0, 8), s = sizes(it), codes = codesOf(it);
   openSheet(`<h3>${esc(it.name)}</h3>
-    <div class="big"><b class="num">${shown(it)}</b><span>${esc(U(it))}</span><span class="pill ${st}">${statusLabel(st)}</span></div>
+    <div class="big"><b class="num">${shown(it)}</b><span>${esc(U(it))}</span><span class="pill ${st}">${statusLabel(st)}</span>
+      <button type="button" class="btn sm fix-stock" id="fixStockBtn">✎ Fix stock</button></div>
     ${s.pp || s.pc ? `<p class="pack big-pack">${esc(packText(shown(it), s, U(it)))}</p>` : ""}
     <div class="inout">
       <button class="btn act in" type="button" data-quick="in"><span aria-hidden="true">↓</span>Stock in</button>
@@ -888,7 +921,7 @@ function itemDetail(id, { code = null } = {}){
     <p class="hint">${esc(it.category)} · warn at ${+it.min||0} ${esc(U(it))}${it.place ? ` · kept at ${esc(it.place)}` : ""}${s.pp||s.pc ? `<br>${esc(sizeText(s, U(it)))}` : ""}</p>
     <div class="codes">${codes.map(c => `<span class="code">${BARCODE_ICON}${esc(c.code)} <small>${esc(codeLabel(c, it))}${c.brand ? ` · ${esc(c.brand)}` : ""}</small></span>`).join("")}
       <button type="button" class="btn sm scan-btn" id="addCodeBtn">${BARCODE_ICON}<span>${codes.length ? "Add another barcode" : "Add barcode"}</span></button></div>
-    <h2 style="font-size:1rem">History</h2>
+    <h2 style="font-size:1rem">History <span class="hint">· tap Edit on an entry to change its amount</span></h2>
     ${hist.length ? `<ul class="mini-feed">${hist.map(m => moveLi(m,false)).join("")}</ul>` : `<p class="hint">No changes recorded yet.</p>`}
     <div class="actions"><button class="btn danger" type="button" id="delBtn">Delete</button><button class="btn" type="button" id="mergeBtn">Merge…</button><button class="btn" type="button" id="editBtn">Edit details</button></div>`,
   p => {
@@ -896,6 +929,7 @@ function itemDetail(id, { code = null } = {}){
     p.querySelector("#editBtn").addEventListener("click", () => itemForm(it));
     p.querySelector("#delBtn").addEventListener("click", () => confirmDelete(it));
     p.querySelector("#mergeBtn").addEventListener("click", () => mergeSheet(it));
+    p.querySelector("#fixStockBtn").addEventListener("click", () => fixStock(it));
     p.querySelector("#addCodeBtn").addEventListener("click", () => {
       openScanner(code => {
         const owner = findByCode(code);
@@ -1017,9 +1051,10 @@ function quickEntry(it, mode = "in", { code = null } = {}){
       try {
         const r = await applyMove(it.id, tp, t, note, { party });
         const label = tp === "received" ? "Stock in" : OUT_TYPES[tp].label;
-        if (r && r.after !== r.before) toast(`${label}: ${t} ${u} · ${it.name}`, { action: "Undo", onAction: async () => {
-          await applyMove(it.id, "count", r.before - r.after, "Undo"); toast("Undone");
-        }});
+        if (r && r.after !== r.before) toast(`${label}: ${t} ${u} · ${it.name}`, { actions: [
+          { label: "Edit", fn: () => editSaved(r.moveId) },
+          { label: "Undo", fn: async () => { await applyMove(it.id, "count", r.before - r.after, "Undo"); toast("Undone"); } }
+        ]});
       } catch (_) {}
     });
     drawParty(); update();
@@ -1365,10 +1400,10 @@ function openCart(mode = "in", { itemId = null, per = null, scan = false } = {})
     if (!done.length) return;
     const first = items.find(x => x.id === done[0].id);
     const msg = done.length === 1 ? `${label}: ${totals[0][1]} ${U(first)} · ${first.name}` : `${label}: ${done.length} items saved`;
-    toast(msg, { action: "Undo", onAction: async () => {
-      for (const r of [...done].reverse()) await applyMove(r.id, "count", r.before - r.after, "Undo");
-      toast("Undone");
-    }});
+    toast(msg, { actions: [
+      done.length === 1 ? { label: "Edit", fn: () => editSaved(done[0].moveId) } : { label: "Edit", fn: () => go("activity") },
+      { label: "Undo", fn: async () => { for (const r of [...done].reverse()) await applyMove(r.id, "count", r.before - r.after, "Undo"); toast("Undone"); } }
+    ]});
   });
 
   drawMode();
@@ -1592,10 +1627,17 @@ document.addEventListener("keydown", e => {
 let toastT;
 function toast(msg, opt = {}){
   const t = $("#toast");
-  t.innerHTML = `<span>${esc(msg)}</span>${opt.action ? `<button type="button">${esc(opt.action)}</button>` : ""}`;
+  const acts = opt.actions || (opt.action ? [{ label: opt.action, fn: opt.onAction }] : []);
+  t.innerHTML = `<span>${esc(msg)}</span>` + acts.map((a, i) => `<button type="button" data-ti="${i}">${esc(a.label)}</button>`).join("");
   t.hidden = false; clearTimeout(toastT);
-  if (opt.action) t.querySelector("button").onclick = () => { t.hidden = true; opt.onAction(); };
-  toastT = setTimeout(() => t.hidden = true, opt.action ? 7000 : 2600);
+  t.querySelectorAll("[data-ti]").forEach(b => b.onclick = () => { t.hidden = true; acts[+b.dataset.ti].fn(); });
+  toastT = setTimeout(() => t.hidden = true, acts.length ? 8000 : 2600);
+}
+/* open the "correct amount" screen for an entry that was just saved */
+function editSaved(id, tries = 0){
+  if (moves.some(m => m.id === id)) return correctEntry(id);
+  if (tries < 6) return setTimeout(() => editSaved(id, tries + 1), 300);
+  toast("Open Activity and tap the entry to change it.");
 }
 
 /* ---------- events ---------- */
