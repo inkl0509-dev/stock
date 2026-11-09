@@ -72,7 +72,7 @@ if (["#lists", "#units"].includes(location.hash)) document.querySelector(`[data-
 /* ---------- lists & settings ---------- */
 // field = item field that uses this list (renaming updates those items too)
 const LIST_DEFS = [
-  { key: "units",      title: "Counted in (single units)", help: "The single unit you count: piece, bottle, can, pack…",                      ph: "e.g. pairs",          def: ["pcs","bottles","cans","packs","boxes","packets","sets","pairs"], field: "unit" },
+  { key: "units",      title: "Counted in (single units)", help: "The single unit you count: piece, bottle, can, pack…",                      ph: "e.g. pairs",          def: ["pcs","bottles","cans","packs","boxes","packets","sets","pairs","liters","kg"], field: "unit" },
   { key: "packings",   title: "Packing units",       help: "What items come in: carton, box, packet… (used in an item's Packing).", ph: "e.g. Sleeve", def: ["Carton","Box","Packet","Case","Tray","Bag","Pack","Crate"] },
   { key: "categories", title: "Categories",          help: "Groups for the stock list filters.",                    ph: "e.g. Bar tools",      def: ["Glassware","Cutlery","Cups & mugs","Plates & bowls","Serveware","Other"], field: "category" },
   { key: "places",     title: "Storage places",      help: "Where items are kept (shown as “Kept at”).",            ph: "e.g. Bar shelf B",    def: [], field: "place" },
@@ -323,7 +323,8 @@ $("#addUser").addEventListener("click", () => {
 });
 
 function showCredentials(email, pass, title){
-  const text = `Crockery Stock login\n${location.origin}\nEmail: ${email}\nPassword: ${pass}`;
+  const where = window.Capacitor?.isNativePlatform?.() ? "Use the Crockery Stock app" : location.origin;
+  const text = `Crockery Stock login\n${where}\nEmail: ${email}\nPassword: ${pass}`;
   openSheet(`<h3>${esc(title)}</h3>
     <p>Send these sign-in details to the person:</p>
     <div class="field"><label for="cred">Sign-in details</label><textarea id="cred" rows="4" readonly>${esc(text)}</textarea></div>
@@ -414,7 +415,7 @@ function renderUnits(){
         <span class="one">1</span>
         <select data-f="name" aria-label="Main pack for ${esc(it.name)}"><option value="" ${st.name ? "" : "selected"}>No pack</option>${pk.map(x => `<option value="${esc(x)}" ${x === st.name ? "selected" : ""}>${esc(cap1(x))}</option>`).join("")}</select>
         <span class="eq">=</span>
-        <input data-f="n" type="number" inputmode="numeric" min="0" step="1" value="${st.n || ""}" placeholder="0" aria-label="How many in 1 pack" ${st.name ? "" : "disabled"}>
+        <input data-f="n" type="number" inputmode="decimal" min="0" step="any" value="${st.n || ""}" placeholder="0" aria-label="How many in 1 pack" ${st.name ? "" : "disabled"}>
         <select data-f="unit" aria-label="Single unit for ${esc(it.name)}">${un.map(x => `<option value="${esc(x)}" ${x === st.unit ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>
         <button type="button" class="btn sm primary" data-save ${dirty ? "" : "disabled"}>Save</button>
       </div>
@@ -426,7 +427,8 @@ $("#iuList").addEventListener("input", e => {
   const row = e.target.closest(".iu-row"), f = e.target.dataset.f; if (!row || !f) return;
   const it = allItems.find(x => x.id === row.dataset.id), m = mainOf(it);
   const st = iuState[it.id] || (iuState[it.id] = { name: m.name, n: m.n, unit: it.unit || "pcs" });
-  st[f] = f === "n" ? Math.max(0, Math.floor(+e.target.value || 0)) : e.target.value;
+  // whole numbers, except measured units (liters, kg…) which may have decimals, e.g. 1 Can = 0.5 liters
+  st[f] = f === "n" ? Math.max(0, /^(l|lt|ltr|ltrs|liters?|litres?|ml|kg|kgs|g|grams?|gallons?)$/i.test(st.unit || it.unit || "") ? Math.round((+e.target.value || 0) * 1000) / 1000 : Math.floor(+e.target.value || 0)) : e.target.value;
   if (f === "name") { const n = row.querySelector('[data-f="n"]'); n.disabled = !st.name; if (st.name) n.focus(); }
   row.classList.add("dirty"); row.querySelector("[data-save]").disabled = false;
 });

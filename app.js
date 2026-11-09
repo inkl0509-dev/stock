@@ -20,7 +20,7 @@ const db = initializeFirestore(fbApp, {
 /* ---------- constants & state ---------- */
 // Lists admins can edit on the admin page (Firestore: settings/lists). These are the defaults.
 const DEFAULT_LISTS = {
-  units: ["pcs","bottles","cans","packs","boxes","packets","sets","pairs"],
+  units: ["pcs","bottles","cans","packs","boxes","packets","sets","pairs","liters","kg"],
   packings: ["Carton","Box","Packet","Case","Tray","Bag","Pack","Crate"],
   categories: ["Glassware","Cutlery","Cups & mugs","Plates & bowls","Serveware","Other"],
   places: [], suppliers: [], outlets: [],
@@ -48,6 +48,12 @@ const chains = {};    // one write at a time per document
 let cart = null;      // the open Stock in / Stock out list
 
 const $ = s => document.querySelector(s);
+/* Measured items (liquids, weight): decimals allowed, e.g. 0.25 liters */
+const MEASURE_RE = /^(l|lt|ltr|ltrs|liter|liters|litre|litres|ml|milliliters?|millilitres?|kg|kgs|kilos?|kilograms?|g|gm|gms|grams?|gallons?)$/i;
+const isMeasure = u => MEASURE_RE.test(String(u || "").trim());
+const unitFor = (n, u) => +n === 1 && /[^s]s$/.test(u) && !/ss$/.test(u) ? u.slice(0, -1) : u;   // 1 liter, 2 liters
+const r3 = n => Math.round((+n || 0) * 1000) / 1000;
+const dec = v => { const n = Number(String(v ?? "").replace(",", ".")); return Number.isFinite(n) && n > 0 ? r3(n) : 0; };
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 const int = v => { const n = Math.floor(Number(v)); return Number.isFinite(n) && n > 0 ? n : 0; };
@@ -59,13 +65,13 @@ const options = (arr, sel) => arr.map(v => `<option value="${esc(v)}" ${v===sel?
 const datalist = (id, arr) => `<datalist id="${id}">${arr.map(v => `<option value="${esc(v)}"></option>`).join("")}</datalist>`;
 const byName = (a,b) => a.name.localeCompare(b.name);
 
-const shown = it => Math.max(0, (+it.qty||0) + (pending[it.id]?.delta||0));
+const shown = it => Math.max(0, r3((+it.qty||0) + (pending[it.id]?.delta||0)));
 function status(it){ const q = shown(it), m = +it.min||0; return q<=0 ? "out" : q<=m ? "low" : "ok"; }
 const statusLabel = st => st === "ok" ? "In stock" : st === "low" ? "⚠ Low" : "✕ Out of stock";
 
 /* ---------- packing: stock is stored in the item's unit (e.g. pieces) ---------- */
 // pp = units in 1 small pack, pc = units in 1 big pack; pn / cn = what you call them (box, packet, carton, case…)
-const rawSizes = it => ({ pp: int(it?.perPacket), pc: int(it?.perCarton),
+const rawSizes = it => ({ pp: dec(it?.perPacket), pc: dec(it?.perCarton),
   pn: String(it?.packName || "packet").trim().toLowerCase() || "packet", cn: String(it?.cartonName || "carton").trim().toLowerCase() || "carton" });
 /* Every item is shown and entered in TWO units only: its main pack (carton, box…) and its single unit (can, spoon…).
    The main pack is the carton level if set, otherwise the packet level. */
@@ -80,10 +86,10 @@ const pl = (n, w) => n === 1 ? w : /(s|x|z|ch|sh)$/.test(w) ? w + "es" : /[^aeio
 const PACK_NAMES = ["Packet", "Box", "Pack", "Tray", "Bag", "Roll", "Sleeve"];
 const BIG_NAMES = ["Carton", "Case", "Box", "Crate", "Bundle", "Sack"];
 function split(q, s){
-  let rest = Math.max(0, q|0); const out = { ctn:0, pkt:0, pcs:0 };
-  if (s.pc) { out.ctn = Math.floor(rest / s.pc); rest -= out.ctn * s.pc; }
-  if (s.pp) { out.pkt = Math.floor(rest / s.pp); rest -= out.pkt * s.pp; }
-  out.pcs = rest; return out;
+  let rest = Math.max(0, r3(q)); const out = { ctn:0, pkt:0, pcs:0 };
+  if (s.pc) { out.ctn = Math.floor(rest / s.pc + 1e-9); rest = r3(rest - out.ctn * s.pc); }
+  if (s.pp) { out.pkt = Math.floor(rest / s.pp + 1e-9); rest = r3(rest - out.pkt * s.pp); }
+  out.pcs = r3(rest); return out;
 }
 const plural = (n, one, many) => `${n} ${n===1?one:many}`;
 function packText(q, s, unit = "pcs", { always=false } = {}){
@@ -91,7 +97,7 @@ function packText(q, s, unit = "pcs", { always=false } = {}){
   const b = split(q, s), parts = [];
   if (b.ctn) parts.push(`${b.ctn} ${pl(b.ctn, s.cn || "carton")}`);
   if (b.pkt) parts.push(`${b.pkt} ${pl(b.pkt, s.pn || "packet")}`);
-  if (b.pcs || !parts.length) parts.push(`${b.pcs} ${unit}`);
+  if (b.pcs || !parts.length) parts.push(`${b.pcs} ${unitFor(b.pcs, unit)}`);
   return parts.join(" + ");
 }
 function sizeText(s, unit = "pcs"){
@@ -301,7 +307,8 @@ const addMove    = m  => { const { id, ...body } = m; return setDoc(doc(db,"move
 async function applyMove(itemId, type, n, note, { party = "", batch = "", extra = {} } = {}){
   const it = items.find(x => x.id === itemId); if (!it) return null;
   const before = +it.qty||0;
-  const after = type === "received" ? before + n : type === "count" ? Math.max(0, before + n) : Math.max(0, before - n);
+  n = r3(n);
+  const after = r3(type === "received" ? before + n : type === "count" ? Math.max(0, before + n) : Math.max(0, before - n));
   if (after === before) return { before, after };
   it.qty = after; render();
   await putItem({ ...it, qty: after, updatedAt: Date.now() });
@@ -443,7 +450,7 @@ function fmtWhen(t){
 /* ---------- corrections: a wrong entry is fixed by a new "Correction" entry (fixOf = original id) ---------- */
 const CORRECTABLE = ["received", "used", "issued", "broken"];
 const fixesFor = id => moves.filter(x => x.fixOf === id).sort((a, b) => a.at - b.at);
-function effQty(m){ const f = fixesFor(m.id); return f.length ? int(f[f.length - 1].fixQty) : +m.qty || 0; }
+function effQty(m){ const f = fixesFor(m.id); return f.length ? r3(f[f.length - 1].fixQty) : +m.qty || 0; }
 const myEmail = () => String(auth.currentUser?.email || "").toLowerCase();
 const canCorrect = m => CORRECTABLE.includes(m.type) && (amAdmin || String(m.by || "").toLowerCase() === myEmail());
 
@@ -455,7 +462,7 @@ function deltaText(m){
   const n = +m.qty||0;
   if (m.type === "received") return "+" + n;
   if (["issued","broken","used"].includes(m.type)) return "−" + n;
-  return (n>0?"+":n<0?"−":"") + Math.abs(n);
+  return (n>0?"+":n<0?"−":"") + r3(Math.abs(n));
 }
 const partyWord = t => t === "received" ? "from" : t === "issued" ? "to" : t === "used" ? "at" : "·";
 function moveLi(m, withName){
@@ -480,7 +487,7 @@ function fixStock(it){
     <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button type="button" class="btn primary" id="fsSave" disabled>Save</button></div>`, p => {
     const qb = qtyBox(p.querySelector("#fsQ"), () => sizes(it), cur, n => {
       p.querySelector("#fsSave").disabled = n === cur;
-      return n === cur ? `Same as now: <b>${cur} ${esc(u)}</b>` : `${cur} → <b>${n} ${esc(u)}</b> · ${n > cur ? "+" : "−"}${Math.abs(n - cur)}`;
+      return n === cur ? `Same as now: <b>${cur} ${esc(u)}</b>` : `${cur} → <b>${n} ${esc(u)}</b> · ${n > cur ? "+" : "−"}${r3(Math.abs(n - cur))}`;
     }, () => u);
     p.querySelector("#fsSave").addEventListener("click", async () => {
       const n = qb.total(), reason = p.querySelector("#fsNote").value.trim();
@@ -515,7 +522,7 @@ function correctEntry(id){
     </div>`, p => {
     const stockNow = () => shown(items.find(x => x.id === it.id) || it);
     const qb = qtyBox(p.querySelector("#fxQ"), () => sizes(it), cur, n => {
-      const change = isIn ? n - cur : cur - n, after = stockNow() + change;
+      const change = r3(isIn ? n - cur : cur - n), after = r3(stockNow() + change);
       p.querySelector("#fxSave").disabled = n === cur || after < 0;
       if (n === cur) return `Same as now: <b>${cur} ${esc(u)}</b>`;
       if (after < 0) return `<span class="bad">Stock would go below zero (only ${stockNow()} ${esc(u)} left)</span>`;
@@ -589,8 +596,9 @@ document.addEventListener("keydown", e => {
 function qtyBox(box, getSizes, startPcs, onChange, getUnit = () => "pcs", { smallFirst = false } = {}){
   let s = getSizes();
   const read = () => {
-    const v = k => int(box.querySelector(`[data-u="${k}"]`)?.value);
-    return v("ctn") * (s.pc||0) + v("pkt") * (s.pp||0) + v("pcs");
+    const meas = isMeasure(getUnit());
+    const v = k => k === "pcs" && meas ? dec(box.querySelector(`[data-u="${k}"]`)?.value) : int(box.querySelector(`[data-u="${k}"]`)?.value);
+    return r3(v("ctn") * (s.pc||0) + v("pkt") * (s.pp||0) + v("pcs"));
   };
   const draw = total => {
     s = getSizes();
@@ -605,7 +613,7 @@ function qtyBox(box, getSizes, startPcs, onChange, getUnit = () => "pcs", { smal
         <label for="q-${k}-${box.id}"><b>${lab}</b>${sub?`<small>${sub}</small>`:""}</label>
         <div class="stepper">
           <button type="button" class="step" data-d="-1" data-k="${k}" aria-label="Less ${lab.toLowerCase()}">−</button>
-          <input id="q-${k}-${box.id}" data-u="${k}" type="number" inputmode="numeric" min="0" step="1" value="${val||""}" placeholder="0">
+          <input id="q-${k}-${box.id}" data-u="${k}" type="number" ${k === "pcs" && isMeasure(u) ? 'inputmode="decimal" step="any"' : 'inputmode="numeric" step="1"'} min="0" value="${val||""}" placeholder="0">
           <button type="button" class="step" data-d="1" data-k="${k}" aria-label="More ${lab.toLowerCase()}">+</button>
         </div>
       </div>`).join("") + `<div class="qtotal" aria-live="polite"></div>`;
@@ -616,7 +624,7 @@ function qtyBox(box, getSizes, startPcs, onChange, getUnit = () => "pcs", { smal
   box.addEventListener("click", e => {
     const b = e.target.closest("[data-d]"); if (!b) return;
     const i = box.querySelector(`[data-u="${b.dataset.k}"]`);
-    i.value = Math.max(0, int(i.value) + Number(b.dataset.d)) || "";
+    i.value = r3(Math.max(0, (+i.value || 0) + Number(b.dataset.d))) || "";
     update();
   });
   draw(startPcs);
@@ -626,7 +634,7 @@ function qtyBox(box, getSizes, startPcs, onChange, getUnit = () => "pcs", { smal
     refresh: update,
     add(k, n = 1){
       const i = box.querySelector(`[data-u="${k}"]`) || box.querySelector('[data-u="pcs"]');
-      i.value = Math.max(0, int(i.value) + n) || ""; update();
+      i.value = r3(Math.max(0, (+i.value || 0) + n)) || ""; update();
       i.closest(".qrow")?.classList.remove("bump"); void i.offsetWidth; i.closest(".qrow")?.classList.add("bump");
     },
     focusFirst(){ box.querySelector("input")?.focus(); }
@@ -660,7 +668,8 @@ function sizeFields(it, { locked = false } = {}){
 }
 function readSizes(p){
   const $p = sel => p.querySelector(sel), box = $p("#fPackBox");
-  const main = $p("#fOuter").value, n = int($p("#fOuterN").value);
+  const meas = isMeasure($p("#fUnit")?.value);
+  const main = $p("#fOuter").value, n = meas ? dec($p("#fOuterN").value) : int($p("#fOuterN").value);
   if (!main || main === "__new" || !n) return { pp: 0, pc: 0, pn: "packet", cn: "carton", bad: !!main && main !== "__new" && !n, empty: true };
   if (box.dataset.slot === "pkt") return { pp: n, pc: 0, pn: main, cn: "carton" };
   // keep an older second pack size (used by packet barcodes) when the carton stays
@@ -671,12 +680,14 @@ function wirePacking(p, getUnit, after = () => {}, { ownUnit = false } = {}){
   let newFor = null;
   const prev = { fOuter: $p("#fOuter").value, fUnit: $p("#fUnit").value };
   const update = () => {
-    const u = getUnit(), main = $p("#fOuter").value, n = int($p("#fOuterN").value), h = $p("#fSizeHint");
+    const u = getUnit(), main = $p("#fOuter").value, n = readSizes(p).pc || readSizes(p).pp, h = $p("#fSizeHint");
+    $p("#fOuterN").inputMode = isMeasure(u) ? "decimal" : "numeric";
+    $p("#fOuterN").step = isMeasure(u) ? "any" : "1";
     $p("#fOuterN").disabled = !main || $p("#fPackBox").classList.contains("locked");
     h.classList.toggle("bad", !!main && !n);
     h.innerHTML = !main ? `No pack: counted in single <b>${esc(u)}</b> only.`
       : !n ? `Enter how many ${esc(u)} are in 1 ${esc(main)}.`
-      : `1 ${esc(main)} = <b>${n} ${esc(u)}</b>`;
+      : `1 ${esc(main)} = <b>${n} ${esc(unitFor(n, u))}</b>`;
     after(readSizes(p));
   };
   const showNew = (el, ph) => { newFor = el; $p("#fPkNew").hidden = false; $p("#fPkNewVal").value = ""; $p("#fPkNewVal").placeholder = ph; $p("#fPkNewVal").focus(); };
@@ -849,7 +860,9 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
     p.querySelector("#fNewCancel").addEventListener("click", () => { p.querySelector("#fNewRow").hidden = true; newFor = null; });
     const qb = isNew ? qtyBox(p.querySelector("#fQty"), getS, 0, t => `Total <b>${t} ${esc(unitNow())}</b>`, unitNow) : null;
     const minHint = () => {
-      const m = int(p.querySelector("#fMin").value), s = getS();
+      const m = isMeasure(unitNow()) ? dec(p.querySelector("#fMin").value) : int(p.querySelector("#fMin").value), s = getS();
+      p.querySelector("#fMin").step = isMeasure(unitNow()) ? "any" : "1";
+      p.querySelector("#fMin").inputMode = isMeasure(unitNow()) ? "decimal" : "numeric";
       p.querySelector("#fMinU").textContent = unitNow();
       p.querySelector("#fMinHint").textContent = m && (s.pp || s.pc) ? `= ${packText(m, s, unitNow())}` : "Shows a Low alert at this level.";
     };
@@ -869,7 +882,7 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
       e.preventDefault();
       const err = p.querySelector("#fErr");
       const name = p.querySelector("#fName").value.trim();
-      const s = getS(), qty = qb ? qb.total() : (+it.qty||0), min = int(p.querySelector("#fMin").value);
+      const s = getS(), qty = qb ? qb.total() : (+it.qty||0), min = isMeasure(unitNow()) ? dec(p.querySelector("#fMin").value) : int(p.querySelector("#fMin").value);
       if (!name) { p.querySelector("#fName").focus(); return err.textContent = "Give the item a name."; }
       if (s.bad && !lockedUnits) return err.textContent = `Units: enter how many ${unitNow()} are in 1 ${p.querySelector("#fOuter").value}.`;
       if (items.some(x => x.name.toLowerCase() === name.toLowerCase() && (isNew || x.id !== it.id))) return err.textContent = `“${name}” is already in your list.`;
@@ -991,7 +1004,10 @@ function quickEntry(it, mode = "in", { code = null } = {}){
     const num = p.querySelector("#qNum");
     const isOut = () => p.querySelector("input[name=qMode]:checked").value === "out";
     const type = () => isOut() ? outType : "received";
-    const total = () => int(num.value) * method.n;
+    const measured = () => method.id === "pcs" && isMeasure(u);
+    const qn = () => measured() ? dec(num.value) : int(num.value);
+    const total = () => r3(qn() * method.n);
+    const setNumMode = () => { num.step = measured() ? "any" : "1"; num.inputMode = measured() ? "decimal" : "numeric"; };
     const drawParty = () => {
       const [label, key, ph] = isOut() ? OUT_TYPES[outType].party : ["Supplier", "suppliers", "e.g. ABC Crockery Traders"];
       const arr = lists[key] || [], box = p.querySelector("#qPartyBox"), keep = box.querySelector("input")?.value || "";
@@ -1004,27 +1020,27 @@ function quickEntry(it, mode = "in", { code = null } = {}){
       p.classList.toggle("is-out", out);
       p.querySelector("#qOut").hidden = !out;
       p.querySelector(".qe-have").textContent = `${cur} ${u} in stock${packText(cur, sizes(it), u) ? " · " + packText(cur, sizes(it), u) : ""}`;
-      const after = out ? cur - t : cur + t, k = int(num.value);
+      const after = r3(out ? cur - t : cur + t), k = qn();
       p.querySelector(".qe-total").innerHTML = !k ? `<span class="muted">Enter how many</span>`
         : after < 0 ? `<span class="bad">Only ${cur} ${esc(u)} in stock</span>`
-        : `${method.n > 1 ? `${k} ${esc(method.label.toLowerCase())} = ` : ""}<b>${out ? "−" : "+"}${t} ${esc(u)}</b> → stock becomes <b>${after} ${esc(u)}</b>`;
+        : `${method.id !== "pcs" ? `${k} ${esc(k === 1 ? unitFor(1, method.label.toLowerCase()) : method.label.toLowerCase())} = ` : ""}<b>${out ? "−" : "+"}${t} ${esc(unitFor(t, u))}</b> → stock becomes <b>${after} ${esc(unitFor(after, u))}</b>`;
       const save = p.querySelector("#qSave");
       save.textContent = out ? `Save ${OUT_TYPES[outType].label.toLowerCase()}` : "Save stock in";
       save.disabled = !k || after < 0;
     };
     p.querySelectorAll("input[name=qMode]").forEach(r => r.addEventListener("change", () => { drawParty(); update(); }));
     p.querySelectorAll("input[name=qOutT]").forEach(r => r.addEventListener("change", () => { outType = r.value; drawParty(); update(); }));
-    p.querySelectorAll("input[name=qMeth]").forEach(r => r.addEventListener("change", () => { method = methods.find(m => m.id === r.value); update(); num.focus(); num.select(); }));
+    p.querySelectorAll("input[name=qMeth]").forEach(r => r.addEventListener("change", () => { method = methods.find(m => m.id === r.value); setNumMode(); update(); num.focus(); num.select(); }));
     num.addEventListener("input", update);
     p.querySelector("#qPack")?.addEventListener("click", () => {
-      const keep = { n: int(num.value), mode: isOut() ? "out" : "in" };
+      const keep = { n: qn(), mode: isOut() ? "out" : "in" };
       packSetup(it, fresh => {
         // re-open with the new pack choices; start on the big pack for stock in
         const z = sizes(fresh), per = keep.mode === "in" ? (z.pc ? "ctn" : z.pp ? "pkt" : "pcs") : "pcs";
         quickEntry(fresh, keep.mode, { code: { per } });
       });
     });
-    p.querySelectorAll("[data-q]").forEach(b => b.addEventListener("click", () => { num.value = Math.max(0, int(num.value) + +b.dataset.q); update(); }));
+    p.querySelectorAll("[data-q]").forEach(b => b.addEventListener("click", () => { num.value = r3(Math.max(0, (+num.value || 0) + +b.dataset.q)); update(); }));
     p.addEventListener("click", e => {
       const c = e.target.closest("[data-party]"); if (!c) return;
       p.querySelector("#qParty").value = c.dataset.party;
@@ -1032,7 +1048,7 @@ function quickEntry(it, mode = "in", { code = null } = {}){
     });
     /* add more products: carry this one over into the multi-item list */
     p.querySelector("#qMore").addEventListener("click", () => {
-      const t = total(), out = isOut(), ot = outType, k = int(num.value), m = method;
+      const t = total(), out = isOut(), ot = outType, k = qn(), m = method;
       openCart(out ? "out" : "in", { itemId: it.id });
       if (cart) {
         if (out) { const r = cart.p.querySelector(`#co-${ot}`); if (r) { r.checked = true; r.dispatchEvent(new Event("change")); } }
@@ -1058,7 +1074,7 @@ function quickEntry(it, mode = "in", { code = null } = {}){
         ]});
       } catch (_) {}
     });
-    drawParty(); update();
+    drawParty(); setNumMode(); update();
     setTimeout(() => { num.focus(); num.select(); }, 60);
   });
 }
@@ -1281,7 +1297,7 @@ function openCart(mode = "in", { itemId = null, per = null, scan = false } = {})
         const cur = shown(live()), out = cart && cart.mode === "out";
         el.querySelector(".cl-have").textContent = `${cur} ${u} in stock${s.pp||s.pc ? ` · ${packText(cur, s, u)}` : ""}`;
         if (!t) return `<span class="muted">Enter how many</span>`;
-        const after = out ? cur - t : cur + t;
+        const after = r3(out ? cur - t : cur + t);
         return after < 0 ? `<span class="bad">Only ${cur} ${esc(u)} in stock</span>`
                          : `${out ? "−" : "+"}<b>${t} ${esc(u)}</b> → stock <b>${after}</b>`;
       }, () => u, { smallFirst: cart.mode === "out" });
@@ -1459,7 +1475,14 @@ async function openScanner(onCode, { title = "Scan barcode", multi = false, onCl
   $("#scanTorch").hidden = true; $("#scanZoomBox").hidden = true; torchOn = false; $("#scanTorch").setAttribute("aria-pressed", "false");
   showLevelChoice(level);
   scanMsg("Starting camera…");
+  $("#scanAgain").hidden = true;
   $("#scanner").hidden = false; document.body.classList.add("locked");
+  // In the Android app: use the phone's own barcode scanner (Google ML Kit). Much faster and more reliable.
+  if (nativeScanner()) return runNativeScanner();
+  await startWebCamera();
+}
+async function startWebCamera(){
+  const multi = scanMulti, keepToggle = !$("#scanKeepBox").hidden;
   try {
     const Q = await loadQr();
     qr = new Q("scanRegion", { verbose: false, formatsToSupport: qrFormats(),
@@ -1485,6 +1508,50 @@ async function openScanner(onCode, { title = "Scan barcode", multi = false, onCl
     await stopCamera();
   }
 }
+/* ---------- phone scanner inside the Android app ---------- */
+function nativeScanner(){
+  const C = window.Capacitor;
+  return C?.isNativePlatform?.() && C.getPlatform?.() === "android" && C.Plugins?.BarcodeScanner && !nativeScanFailed ? C.Plugins.BarcodeScanner : null;
+}
+let nativeScanFailed = false;
+async function runNativeScanner(){
+  const BS = nativeScanner();
+  $("#scanStage").hidden = true;
+  try {
+    const { available } = await BS.isGoogleBarcodeScannerModuleAvailable();
+    if (!available) {
+      scanMsg("Getting the phone's scanner ready (first time only)… Try again in a moment.");
+      try { await BS.installGoogleBarcodeScannerModule(); } catch (_) {}
+    }
+  } catch (_) {}
+  while (!$("#scanner").hidden) {
+    scanMsg("Opening the phone's scanner…");
+    let res;
+    try { res = await BS.scan(); }
+    catch (e) {
+      if (/cancel/i.test(String(e?.message || e))) { scanMsg("Scanner closed. Tap “Scan again”, or type the barcode below."); $("#scanAgain").hidden = false; return; }
+      nativeScanFailed = true; $("#scanStage").hidden = false;     // fall back to the camera in the page
+      return startWebCamera();
+    }
+    const code = res?.barcodes?.[0]?.rawValue || res?.barcodes?.[0]?.displayValue;
+    if (!code) { scanMsg("No barcode read. Tap “Scan again”.", "warn"); $("#scanAgain").hidden = false; return; }
+    lastCode = ""; deliverCode(String(code).trim());
+    if ($("#scanner").hidden || !scanMulti || ($("#scanKeepBox").hidden === false && !keepScanning())) { if (!$("#scanner").hidden) $("#scanAgain").hidden = false; return; }
+    await new Promise(r => setTimeout(r, 450));
+  }
+}
+$("#scanAgain").addEventListener("click", () => { $("#scanAgain").hidden = true; nativeScanner() ? runNativeScanner() : startWebCamera(); });
+
+/* ---------- Android back button: close the open screen first ---------- */
+const CapApp = window.Capacitor?.isNativePlatform?.() ? window.Capacitor.Plugins?.App : null;
+CapApp?.addListener?.("backButton", () => {
+  if (!$("#scanner").hidden) return closeScanner();
+  if (!$("#sheet2").hidden) return closeSheet(2);
+  if (!$("#sheet").hidden) return closeSheet(1);
+  if (location.hash && location.hash !== "#") return history.back();
+  CapApp.exitApp();
+});
+
 /* torch + zoom, where the phone supports them */
 function setupCameraTools(){
   let caps = {};
@@ -1549,6 +1616,7 @@ async function stopCamera(){
 }
 async function closeScanner(){
   $("#scanner").hidden = true;
+  $("#scanStage").hidden = false; $("#scanAgain").hidden = true;
   const cb = scanOnClose; scanCb = null; scanOnClose = null; scanSkip = null; lastCode = "";
   await stopCamera();
   if ($("#sheet").hidden && $("#sheet2").hidden) document.body.classList.remove("locked");
@@ -1822,7 +1890,7 @@ function dailyCount(){
   const lastCount = it => moves.find(m => m.itemId === it.id && isDailyCount(m));
   const foot = () => {
     const done = [...lines.values()].filter(l => l.touched);
-    const used = done.reduce((a, l) => { const d = shown(l.it) - l.qb.total(); return a + (d > 0 ? d : 0); }, 0);
+    const used = r3(done.reduce((a, l) => { const d = r3(shown(l.it) - l.qb.total()); return a + (d > 0 ? d : 0); }, 0));
     pn.querySelector("#dcSum").innerHTML = `<b>${done.length}</b> of ${lines.size} counted${used ? ` · ${used} used` : ""}`;
     pn.querySelector("#dcSave").disabled = !done.length;
     pn.querySelector("#dcSave").textContent = done.length ? `Save count (${done.length})` : "Save count";
@@ -1840,7 +1908,7 @@ function dailyCount(){
     const line = { it, el, touched: false };
     line.qb = qtyBox(el.querySelector(".qbox"), () => sizes(it), 0, n => {
       if (!line.touched) return `<span class="muted">How many are left?</span>`;
-      const d = shown(it) - n;
+      const d = r3(shown(it) - n);
       el.classList.toggle("done", true);
       return d > 0 ? `Left <b>${n}</b> · used <b>${d} ${esc(U(it))}</b> since the app's number`
         : d < 0 ? `Left <b>${n}</b> · <b>${-d} more</b> than the app has. It will be corrected.`

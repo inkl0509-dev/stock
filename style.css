@@ -822,3 +822,10 @@ li.is-fix .what{color:var(--accent)}
 .add-bar .edit-cat{flex:0 0 auto;min-height:46px}
 .cm-del{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:10px}
 .cm-del .btn{align-self:flex-start}
+
+/* phone app (Capacitor) */
+.scan-again{min-height:52px;font-size:1rem}
+.native-app [data-install]{display:none!important}
+.native-app .update-bar{display:none!important}
+.toast{min-width:min(340px,calc(100% - 32px))}
+.toast > span{flex:1;min-width:0}
