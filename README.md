@@ -23,6 +23,9 @@ installs like an app, and keeps working offline.
   *1 Carton = 24 cans*, *1 Box = 12 spoons*. Stock in/out, counts and lists show only these two.
   Staff choose them when creating an item; only **admins** can change them later (in the item, from Stock in,
   or on **Admin → Item units**, which lists every item). Firestore rules enforce this.
+- **Liquids and weights:** set the single unit to *liters* (or ml, kg, g) and the main pack to *Can*:
+  *1 Can = 1 liter* (or 5 L, 0.5 L). Stock, minimum level and stock out then take decimals (e.g. use 0.75 L);
+  stock shows as *9 cans + 0.25 liters*. Counted items (glasses, spoons) stay whole numbers.
 - **Correct a wrong entry:** tap an entry in Activity or an item's History → *Correct amount* or *Cancel this entry*.
   Stock is adjusted by the difference; the original shows as corrected and a *Correction* line records who, when and why.
   Staff can correct their own entries, admins any.

@@ -1,6 +1,9 @@
 // Install button + "new version available" bar. Used by every page.
 let reg = null, deferredPrompt = null;
 const $ = s => document.querySelector(s);
+// Inside the Android / iPhone app (Capacitor) the files are part of the app: no service worker, no install button.
+export const inNativeApp = !!window.Capacitor?.isNativePlatform?.();
+if (inNativeApp) document.documentElement.classList.add("native-app");
 const isStandalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
@@ -11,7 +14,7 @@ function showUpdate(worker){
   $("#updateBtn").onclick = () => { $("#updateBtn").disabled = true; $("#updateBtn").textContent = "Updating…"; worker.postMessage({ type: "SKIP_WAITING" }); };
 }
 
-if ("serviceWorker" in navigator) {
+if ("serviceWorker" in navigator && !inNativeApp) {
   window.addEventListener("load", async () => {
     try {
       reg = await navigator.serviceWorker.register("/sw.js");
@@ -43,7 +46,7 @@ export async function checkForUpdate(){
 /* ---------- install ---------- */
 function setInstallVisible(v){ document.querySelectorAll("[data-install]").forEach(b => b.hidden = !v); }
 
-window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); deferredPrompt = e; setInstallVisible(true); });
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); if (inNativeApp) return; deferredPrompt = e; setInstallVisible(true); });
 window.addEventListener("appinstalled", () => { deferredPrompt = null; setInstallVisible(false); });
 
 document.addEventListener("click", async e => {
@@ -60,4 +63,4 @@ document.addEventListener("click", async e => {
 });
 
 // iPhone/iPad have no install prompt: show the button with "Share → Add to Home Screen" instructions
-if (isIOS() && !isStandalone()) document.addEventListener("DOMContentLoaded", () => setInstallVisible(true));
+if (isIOS() && !isStandalone() && !inNativeApp) document.addEventListener("DOMContentLoaded", () => setInstallVisible(true));
