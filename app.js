@@ -1194,7 +1194,7 @@ const OUT_TYPES = {
 };
 function itemOptions(sel){
   const groups = {};
-  items.forEach(i => (groups[i.category] ||= []).push(i));
+  items.forEach(i => (groups[i.category] = groups[i.category] || []).push(i));
   const order = [...lists.categories.filter(c => groups[c]), ...Object.keys(groups).filter(c => !lists.categories.includes(c)).sort()];
   return order.map(c => `<optgroup label="${esc(c)}">${groups[c].sort(byName)
     .map(i => `<option value="${i.id}" ${i.id === sel ? "selected" : ""}>${esc(i.name)} (${shown(i)} ${esc(U(i))})</option>`).join("")}</optgroup>`).join("");
@@ -1760,7 +1760,7 @@ setInterval(() => { if (moves.length) renderFeed(); }, 60000);
 /* ================= pages: Home · Items · Activity ================= */
 const VIEWS = { "": "Crockery Stock", items: "Items", activity: "Activity" };
 let fromHome = false;
-function currentView(){ const h = location.hash.slice(1); return Object.hasOwn(VIEWS, h) ? h : ""; }
+function currentView(){ const h = location.hash.slice(1); return Object.prototype.hasOwnProperty.call(VIEWS, h) ? h : ""; }
 function applyView(){
   const v = currentView();
   $("#appView").dataset.view = v || "home";

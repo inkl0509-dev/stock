@@ -1,4 +1,4 @@
-// Install button + "new version available" bar. Used by every page.
+// Install button + automatic updates. Used by every page.
 let reg = null, deferredPrompt = null;
 const $ = s => document.querySelector(s);
 // Inside the Android / iPhone app (Capacitor) the files are part of the app: no service worker, no install button.
@@ -39,8 +39,8 @@ export async function checkForUpdate(){
   if (!reg) return false;
   try { await reg.update(); } catch (_) {}
   await new Promise(r => setTimeout(r, 800));
-  if (reg.waiting && navigator.serviceWorker.controller) { showUpdate(reg.waiting); return true; }
-  return false;
+  if (reg.waiting) { reg.waiting.postMessage({ type: "SKIP_WAITING" }); return true; }   // new version takes over → page reloads
+  return !!reg.installing;
 }
 
 /* ---------- install ---------- */

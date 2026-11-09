@@ -124,14 +124,12 @@ No environment variables are needed.
 
 ## 5. Releasing updates
 
-1. Change the code.
-2. **Open `sw.js` and change `VERSION`** (e.g. `"2026-11-01-1"` → `"2026-11-05-1"`). This is what tells phones there's a new version.
-3. `git add . && git commit -m "..." && git push`
+1. Upload **all** changed files to GitHub (simplest: all files from the zip) → Commit. Vercel redeploys.
+2. That's it. When online, the app always loads the newest files; phones switch over by themselves
+   (the open app reloads once). The saved offline copy is only used when there's no internet.
 
-Vercel redeploys. Open apps show **"A new version of the app is ready · Update now"**
-(right away when they reopen the app, or when someone taps **Reload**).
-
-If you forget to change `VERSION`, installed apps keep showing the old version.
+**App not loading on a phone?** Tap the red **Repair app** bar, or open `https://YOUR-SITE.vercel.app/?repair` once.
+It clears the saved copy on that phone and loads the latest version. Logins and stock are not affected.
 
 ## Roles
 

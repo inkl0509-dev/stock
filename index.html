@@ -18,6 +18,37 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+<!-- If the app ever fails to load (e.g. an old saved copy on the phone), offer a one-tap repair. -->
+<div id="repairBar" class="repair-bar" hidden>
+  <span>The app didn't load properly on this device.</span>
+  <button type="button" id="repairBtn">Repair app</button>
+</div>
+<script>
+(function () {
+  async function repair() {
+    try { const regs = await navigator.serviceWorker?.getRegistrations?.(); for (const r of regs || []) await r.unregister(); } catch (e) {}
+    try { for (const k of await caches.keys()) await caches.delete(k); } catch (e) {}
+    location.replace(location.pathname + "?v=" + Date.now() + location.hash);
+  }
+  if (/[?&]repair\b/.test(location.search)) { repair(); return; }
+  function show() { var b = document.getElementById("repairBar"); if (b) b.hidden = false; }
+  window.addEventListener("error", function (e) {
+    var f = (e && e.filename) || "";
+    if (!f || f.indexOf(location.origin) === 0) show();
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    var m = String((e && e.reason && (e.reason.message || e.reason)) || "");
+    if (/import|module|Failed to fetch dynamically|is not defined|Cannot read/i.test(m)) show();
+  });
+  document.addEventListener("click", function (e) { if (e.target && e.target.id === "repairBtn") { e.target.textContent = "Repairing…"; repair(); } });
+  // if nothing appears after 12 s (blank screen), offer repair too
+  setTimeout(function () {
+    var login = document.getElementById("loginView"), app = document.getElementById("appView"), page = document.querySelector(".admin-wrap");
+    if (login && app && login.hidden && app.hidden) show();
+  }, 12000);
+})();
+</script>
+
 
 <!-- New version bar -->
 <div id="updateBar" class="update-bar" role="status" hidden>

@@ -1,6 +1,12 @@
-// Service worker: lets the app install, open offline, and update.
-// ⚠️ Change VERSION every time you deploy changes → users see "New version available".
-const VERSION = "2026-11-09-3";
+// Service worker: makes the app installable and lets it open offline.
+//
+// How it stays up to date (no "Update" button needed):
+//  - When online, the app's own files are ALWAYS loaded fresh from the website.
+//    The saved copy is only used when there is no internet.
+//  - A new version of this file takes over by itself and the open app reloads once.
+//
+// Changing VERSION is no longer required for updates, but it clears old saved copies.
+const VERSION = "2026-11-09-5";
 const CACHE = "crockery-stock-" + VERSION;
 const SHELL = [
   "/", "/index.html", "/admin.html",
@@ -9,8 +15,14 @@ const SHELL = [
 ];
 
 self.addEventListener("install", e => {
-  // Download the new version, then wait until the user taps "Update"
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
+  e.waitUntil((async () => {
+    const c = await caches.open(CACHE);
+    // fetch every file fresh (not from the browser's HTTP cache), one by one, so one missing file can't block install
+    await Promise.all(SHELL.map(async url => {
+      try { const res = await fetch(url, { cache: "reload" }); if (res.ok) await c.put(url, res); } catch (_) {}
+    }));
+    await self.skipWaiting();   // take over straight away
+  })());
 });
 
 self.addEventListener("activate", e => {
@@ -20,6 +32,7 @@ self.addEventListener("activate", e => {
   })());
 });
 
+// old pages may still ask to skip waiting
 self.addEventListener("message", e => { if (e.data?.type === "SKIP_WAITING") self.skipWaiting(); });
 
 self.addEventListener("fetch", e => {
@@ -27,11 +40,11 @@ self.addEventListener("fetch", e => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
 
-  // Never cache the server API or Firebase data (Firestore keeps its own offline copy in IndexedDB)
+  // Never touch the server API or Firebase data (Firestore keeps its own offline copy)
   if (url.pathname.startsWith("/api/")) return;
   if (url.hostname.endsWith("googleapis.com") && !url.hostname.startsWith("fonts.")) return;
 
-  // Firebase SDK, barcode scanner library and fonts never change at a given URL → cache first
+  // Firebase SDK, barcode library and fonts never change at a given address → saved copy first
   if (url.hostname === "www.gstatic.com" || url.hostname === "fonts.gstatic.com" || url.hostname === "fonts.googleapis.com" || url.hostname === "unpkg.com") {
     e.respondWith(caches.open(CACHE).then(async c => {
       const hit = await c.match(req);
@@ -43,33 +56,20 @@ self.addEventListener("fetch", e => {
     return;
   }
 
-  // Firebase config + admin list: always fetch fresh (so pasting new keys works right away); offline → saved copy
-  if (url.origin === location.origin && (url.pathname === "/firebase-config.js" || url.pathname === "/admins.js")) {
-    e.respondWith((async () => {
-      const c = await caches.open(CACHE);
-      try {
-        const res = await fetch(req, { cache: "no-store" });
-        if (res.ok) c.put(url.pathname, res.clone());
-        return res;
-      } catch (err) {
-        return (await c.match(url.pathname)) || Response.error();
-      }
-    })());
-    return;
-  }
-
-  // Our own files: use the cached version for this release, fall back to network
+  // The app's own files: NETWORK FIRST (always the newest), saved copy only when offline
   if (url.origin === location.origin) {
     e.respondWith((async () => {
       const c = await caches.open(CACHE);
-      const hit = await c.match(req, { ignoreSearch: true }) || (req.mode === "navigate" ? await c.match("/index.html") : null);
-      if (hit) return hit;
+      // the home page can be "/" or "/index.html": save and find it under one name
+      const key = url.pathname === "/" ? "/index.html" : url.pathname;
       try {
-        const res = await fetch(req);
-        if (res.ok) c.put(req, res.clone());
+        const res = await fetch(req, { cache: "no-store" });
+        if (res.ok) c.put(key, res.clone());
         return res;
       } catch (err) {
-        return (await c.match("/index.html")) || Response.error();
+        return (await c.match(key, { ignoreSearch: true }))
+          || (req.mode === "navigate" ? await c.match("/index.html") : null)
+          || Response.error();
       }
     })());
   }
