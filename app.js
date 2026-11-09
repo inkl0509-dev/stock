@@ -220,9 +220,8 @@ $("#lPassToggle").addEventListener("click", () => {
 let amAdmin = false;
 function setAdmin(v){
   amAdmin = !!v; renderHome();
-  $("#hdrAdmin").hidden = !amAdmin;
-  $("#role").textContent = amAdmin ? "Admin" : "Staff";
-  $("#role").className = "role " + (amAdmin ? "admin" : "staff");
+  if ($("#hdrAdmin")) $("#hdrAdmin").hidden = !amAdmin;
+  if ($("#role")) { $("#role").textContent = amAdmin ? "Admin" : "Staff"; $("#role").className = "role " + (amAdmin ? "admin" : "staff"); }
 }
 /* Admin = owner email (admins.js) or listed as admin on Admin → Users (settings/access) */
 function showAdminLink(){
@@ -1475,7 +1474,7 @@ async function openScanner(onCode, { title = "Scan barcode", multi = false, onCl
   $("#scanTorch").hidden = true; $("#scanZoomBox").hidden = true; torchOn = false; $("#scanTorch").setAttribute("aria-pressed", "false");
   showLevelChoice(level);
   scanMsg("Starting camera…");
-  $("#scanAgain").hidden = true;
+  if ($("#scanAgain")) $("#scanAgain").hidden = true;
   $("#scanner").hidden = false; document.body.classList.add("locked");
   // In the Android app: use the phone's own barcode scanner (Google ML Kit). Much faster and more reliable.
   if (nativeScanner()) return runNativeScanner();
@@ -1516,7 +1515,7 @@ function nativeScanner(){
 let nativeScanFailed = false;
 async function runNativeScanner(){
   const BS = nativeScanner();
-  $("#scanStage").hidden = true;
+  if ($("#scanStage")) $("#scanStage").hidden = true;
   try {
     const { available } = await BS.isGoogleBarcodeScannerModuleAvailable();
     if (!available) {
@@ -1529,18 +1528,18 @@ async function runNativeScanner(){
     let res;
     try { res = await BS.scan(); }
     catch (e) {
-      if (/cancel/i.test(String(e?.message || e))) { scanMsg("Scanner closed. Tap “Scan again”, or type the barcode below."); $("#scanAgain").hidden = false; return; }
-      nativeScanFailed = true; $("#scanStage").hidden = false;     // fall back to the camera in the page
+      if (/cancel/i.test(String(e?.message || e))) { scanMsg("Scanner closed. Tap “Scan again”, or type the barcode below."); if ($("#scanAgain")) $("#scanAgain").hidden = false; return; }
+      nativeScanFailed = true; if ($("#scanStage")) $("#scanStage").hidden = false;     // fall back to the camera in the page
       return startWebCamera();
     }
     const code = res?.barcodes?.[0]?.rawValue || res?.barcodes?.[0]?.displayValue;
-    if (!code) { scanMsg("No barcode read. Tap “Scan again”.", "warn"); $("#scanAgain").hidden = false; return; }
+    if (!code) { scanMsg("No barcode read. Tap “Scan again”.", "warn"); if ($("#scanAgain")) $("#scanAgain").hidden = false; return; }
     lastCode = ""; deliverCode(String(code).trim());
-    if ($("#scanner").hidden || !scanMulti || ($("#scanKeepBox").hidden === false && !keepScanning())) { if (!$("#scanner").hidden) $("#scanAgain").hidden = false; return; }
+    if ($("#scanner").hidden || !scanMulti || ($("#scanKeepBox").hidden === false && !keepScanning())) { if (!$("#scanner").hidden) if ($("#scanAgain")) $("#scanAgain").hidden = false; return; }
     await new Promise(r => setTimeout(r, 450));
   }
 }
-$("#scanAgain").addEventListener("click", () => { $("#scanAgain").hidden = true; nativeScanner() ? runNativeScanner() : startWebCamera(); });
+$("#scanAgain")?.addEventListener("click", () => { $("#scanAgain").hidden = true; nativeScanner() ? runNativeScanner() : startWebCamera(); });
 
 /* ---------- Android back button: close the open screen first ---------- */
 const CapApp = window.Capacitor?.isNativePlatform?.() ? window.Capacitor.Plugins?.App : null;
@@ -1616,7 +1615,8 @@ async function stopCamera(){
 }
 async function closeScanner(){
   $("#scanner").hidden = true;
-  $("#scanStage").hidden = false; $("#scanAgain").hidden = true;
+  if ($("#scanStage")) $("#scanStage").hidden = false;
+  if ($("#scanAgain")) $("#scanAgain").hidden = true;
   const cb = scanOnClose; scanCb = null; scanOnClose = null; scanSkip = null; lastCode = "";
   await stopCamera();
   if ($("#sheet").hidden && $("#sheet2").hidden) document.body.classList.remove("locked");
