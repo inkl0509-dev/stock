@@ -98,6 +98,27 @@ function watchLists(){
   });
 }
 
+/* list + anything items already use (units and pack names), so nothing entered earlier is missing */
+function usedByItems(key){
+  const cap1 = w => w ? w.charAt(0).toUpperCase() + w.slice(1) : w;
+  if (key === "units") return allItems.map(i => i.unit || "pcs");
+  if (key === "packings") return [...allItems.filter(i => +i.perCarton).map(i => cap1(String(i.cartonName || "carton"))), ...allItems.filter(i => +i.perPacket).map(i => cap1(String(i.packName || "packet")))];
+  if (key === "categories") return allItems.map(i => i.category);
+  if (key === "places") return allItems.map(i => i.place);
+  return [];
+}
+function usedPlusList(key){
+  const base = listData?.[key]?.length ? listData[key] : (LIST_DEFS.find(d => d.key === key)?.def || []);
+  const seen = new Set(), out = [];
+  for (const v of [...base, ...usedByItems(key)]) { const k = String(v || "").trim().toLowerCase(); if (k && !seen.has(k)) { seen.add(k); out.push(String(v).trim()); } }
+  return out;
+}
+/* in use by items but not in the saved list */
+function missingFromList(key){
+  const inList = new Set((listData?.[key] || []).map(v => String(v).toLowerCase()));
+  return usedPlusList(key).filter(v => !inList.has(v.toLowerCase()));
+}
+
 function renderLists(){
   const open = document.activeElement?.dataset?.addfor; // keep focus in the input you were typing in
   $("#listsBox").innerHTML = (isAdmin ? "" : `<div class="notice"><b>View only.</b><span>Only admins can change these lists. Admin emails are set in <code>admins.js</code> and <code>firestore.rules</code>.</span></div>`) +
@@ -118,6 +139,7 @@ function renderLists(){
         <button type="button" class="tagbtn" data-del="${def.key}" data-i="${i}" aria-label="Remove ${esc(v)}">✕</button></li>`;
       }).join("")
         : `<li class="none">Nothing yet</li>`}</ul>
+      ${(() => { const miss = missingFromList(def.key); return miss.length ? `<div class="miss"><span class="hint">Used by items but not in this list:</span>${miss.map(v => `<button type="button" class="chip" data-addmiss="${def.key}" data-v="${esc(v)}">＋ ${esc(v)}</button>`).join("")}${miss.length > 1 ? `<button type="button" class="link" data-addallmiss="${def.key}">Add all</button>` : ""}</div>` : ""; })()}
       <form class="join" data-form="${def.key}" novalidate>
         <input data-addfor="${def.key}" maxlength="40" placeholder="${esc(def.ph)}" aria-label="Add to ${esc(def.title)}">
         <button class="btn" type="submit">Add</button>
@@ -165,6 +187,13 @@ $("#listsBox").addEventListener("submit", e => {
   if (arr.some(x => x.toLowerCase() === v.toLowerCase())) { toast(`“${v}” is already in the list`); return; }
   input.value = "";
   saveList(key, [...arr, v], `Added ${v}`);
+});
+$("#listsBox").addEventListener("click", e => {
+  const one = e.target.closest("[data-addmiss]"), all = e.target.closest("[data-addallmiss]");
+  if (!one && !all) return;
+  const key = (one || all).dataset.addmiss || (one || all).dataset.addallmiss;
+  const add = one ? [one.dataset.v] : missingFromList(key);
+  saveList(key, [...listData[key], ...add], add.length === 1 ? `Added ${add[0]}` : `Added ${add.length} to the list`);
 });
 $("#listsBox").addEventListener("keydown", e => { if (e.key === "Escape" && editing) { e.stopPropagation(); editing = null; renderLists(); } });
 $("#listsBox").addEventListener("click", e => {
@@ -400,8 +429,8 @@ function renderUnits(){
   if (!isAdmin) { box.innerHTML = `<div class="notice"><b>Admins only.</b><span>Only admins can change item units.</span></div>`; return; }
   if (document.activeElement && box.contains(document.activeElement)) return;   // don't redraw while typing
   const q = ($("#iuQ")?.value || "").trim().toLowerCase();
-  const packs = listData?.packings?.length ? listData.packings : ["Carton","Box","Packet","Case","Tray","Bag","Pack","Crate"];
-  const units = listData?.units?.length ? listData.units : ["pcs"];
+  const packs = usedPlusList("packings");
+  const units = usedPlusList("units");
   const list = allItems.filter(it => !q || (it.name + " " + (it.category || "")).toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name));
   if (!list.length) { box.innerHTML = `<div class="empty"><h3>${allItems.length ? "No items match" : "No items yet"}</h3></div>`; return; }
   box.innerHTML = list.map(it => {

@@ -33,7 +33,15 @@ installs like an app, and keeps working offline.
   scan or search items, enter cartons / packets / pieces for each, then save everything at once.
   Stock out has three types: **Use** (consumed), **Issue** (to an outlet/event), **Breakage** (with reason).
   Supplier / outlet / reason picked from the Admin lists. **Undo** after saving.
-- **Barcode & QR code scanning** (QR codes, including web links, work everywhere a barcode does)
+- **Barcode scanning** with the phone camera
+- **Product details from the camera:** scan the barcode of a new product and the app looks it up in the free
+  online product lists (Open Food Facts / Open Products Facts) and fills in the **name, brand, size and photo**.
+  Works well for drinks and packaged goods; most crockery isn't listed, so then you type the name.
+  In **New item** you can also tap **Scan to fill details**.
+- **Product photos:** in New item / Edit item tap **Take photo**. The photo is made small and shown in the list.
+- **Make your own barcodes:** open an item → **🏷 Make a barcode** (or **Make barcode** in the item form). The app
+  makes a unique code (EAN-13 starting with 29, the range meant for in-house use) and saves it to the item.
+  Then **Share** the label (WhatsApp, email…), **Download** it, or **Print** several labels on one page.
   - **Phone camera:** tap *Scan*, keep scanning items one after another (beep + vibrate on each).
     Works in Chrome, Edge and Safari (iPhone) over HTTPS — Vercel gives you HTTPS automatically.
   - **Handheld USB / Bluetooth scanners** work too — just scan; no need to tap anything.

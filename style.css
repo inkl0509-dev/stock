@@ -844,3 +844,37 @@ li.is-fix .what{color:var(--accent)}
 .codes-box{background:var(--surface)}
 .codes-box .scan-btn{color:var(--accent-ink)}
 .codes-box .codes-add .btn{flex:1 1 140px}
+.miss{display:flex;flex-wrap:wrap;gap:6px;align-items:center;background:var(--low-soft);border-radius:10px;padding:8px 10px}
+.miss .hint{width:100%;margin:0;color:var(--low-ink)}
+.miss .chip{background:var(--surface)}
+
+/* ---------- product photos ---------- */
+.row .main.has-img{display:grid;grid-template-columns:44px 1fr;column-gap:10px;align-items:center}
+.row .main.has-img .thumb{grid-row:1 / span 4;width:44px;height:44px}
+.row .main.has-img > :not(.thumb){grid-column:2}
+.thumb,.detail-img,.lookup-img,.photo-box img{object-fit:cover;border-radius:10px;background:var(--surface);border:1px solid var(--line)}
+.detail-head{display:flex;align-items:center;gap:12px}
+.detail-head h3{margin:0}
+.detail-img{width:64px;height:64px;flex:none}
+.photo-row{display:flex;gap:12px;align-items:center;margin-bottom:10px}
+.photo-box{width:72px;height:72px;flex:none;border-radius:12px;border:1.5px dashed var(--line);display:grid;place-items:center;font-size:1.6rem;overflow:hidden;background:var(--surface)}
+.photo-box img{width:100%;height:100%;border:0;border-radius:0}
+.photo-btns{display:flex;flex-wrap:wrap;gap:6px}
+.photo-btns label.btn{cursor:pointer}
+.lookup-msg{margin:-4px 0 8px;padding:8px 10px;border-radius:10px;background:var(--surface)}
+.lookup-card{display:flex;gap:12px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:12px;margin:8px 0}
+.lookup-card .lookup-img{width:56px;height:56px;flex:none}
+.lookup-card div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.lookup-card p{margin:0}
+
+/* ---------- barcode label ---------- */
+.bl-new{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+.bl-new-row{display:flex;flex-wrap:wrap;gap:8px}
+.bl-new-row .btn{flex:1 1 140px}
+.bl-preview{margin:10px 0;display:grid;place-items:center;min-height:60px}
+.bl-canvas{width:100%;max-width:420px;height:auto;border:1px solid var(--line);border-radius:8px;background:#fff}
+.bl-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.bl-actions > .btn{flex:1 1 110px}
+.bl-print{display:flex;gap:6px;flex:1 1 160px}
+.bl-print input{width:64px;padding:8px;border:1px solid var(--line);border-radius:10px;font:inherit}
+.bl-print .btn{flex:1}

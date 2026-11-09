@@ -109,7 +109,7 @@ function sizeText(s, unit = "pcs"){
 }
 /* ---------- barcodes ---------- */
 const normCode = c => String(c || "").trim().replace(/\s+/g, "").toLowerCase();
-// a typed / pasted / scanned code: barcode digits, or QR content such as https://… (no spaces, 4+ characters)
+// a typed / pasted / scanned code (no spaces, 4+ characters, has a digit or code symbols)
 const looksLikeCode = q => /^\S{4,}$/.test(String(q || "").trim()) && (/\d/.test(q) || /[:/.?=#_-]/.test(q));
 // QR or barcode? From the scanner when known, otherwise guessed from the content
 let lastScanFormat = "";
@@ -252,8 +252,19 @@ function showNoAccess(){
 /* add a new entry to an admin list (categories, units…) from a form */
 async function addToList(key, value){
   if (!amAdmin) return false;
-  try { await setDoc(doc(db, "settings", "lists"), { [key]: arrayUnion(value), updatedAt: Date.now() }, { merge: true }); return true; }
+  // write the whole list (current + new) so the defaults are never lost when the list is saved for the first time
+  const cur = lists[key] || DEFAULT_LISTS[key] || [];
+  if (cur.some(x => String(x).toLowerCase() === String(value).toLowerCase())) return true;
+  try { await setDoc(doc(db, "settings", "lists"), { [key]: [...cur, value], updatedAt: Date.now() }, { merge: true }); return true; }
   catch (_) { return false; }
+}
+/* every single unit / pack name: the saved list PLUS anything already used by an item, so nothing entered earlier goes missing */
+function uniqueCI(arr){ const seen = new Set(), out = []; for (const v of arr) { const k = String(v || "").trim().toLowerCase(); if (k && !seen.has(k)) { seen.add(k); out.push(String(v).trim()); } } return out; }
+function allUnits(){ return uniqueCI([...(lists.units?.length ? lists.units : ["pcs"]), ...items.map(i => i.unit || "pcs")]); }
+function allPacks(){
+  return uniqueCI([...(lists.packings?.length ? lists.packings : DEFAULT_LISTS.packings),
+    ...items.filter(i => +i.perCarton).map(i => cap(String(i.cartonName || "carton"))),
+    ...items.filter(i => +i.perPacket).map(i => cap(String(i.packName || "packet")))]);
 }
 const NEW_OPT = `<option value="__new">＋ Add new…</option>`;
 
@@ -431,7 +442,8 @@ function rowHtml(it){
     const pack = packText(q, s, U(it));
     return `<div class="row ${st} ${pending[it.id]?"pending":""}" data-row="${it.id}">
       <span class="stripe" aria-hidden="true"></span>
-      <button type="button" class="main" data-act="open" data-id="${it.id}">
+      <button type="button" class="main ${it.image ? "has-img" : ""}" data-act="open" data-id="${it.id}">
+        ${imgTag(it.image, "thumb")}
         <span class="name">${esc(it.name)}${codesOf(it).length ? ` <span class="bc-mark" title="Has barcode" aria-label="Has barcode">${BARCODE_ICON}</span>` : ""}</span>
         <span class="meta"><span class="pill ${st}">${statusLabel(st)}</span>${esc(it.category)} · min ${m}${it.place?` · ${esc(it.place)}`:""}</span>
         ${pack ? `<span class="pack">${esc(pack)}</span>` : ""}
@@ -652,12 +664,12 @@ function qtyBox(box, getSizes, startPcs, onChange, getUnit = () => "pcs", { smal
 /* ---------- item form ---------- */
 /* ---------- units: 1 [Carton ▾] = [24] [cans ▾] ---------- */
 function packOptions(sel){
-  const names = [...(lists.packings?.length ? lists.packings : DEFAULT_LISTS.packings)];
+  const names = allPacks();
   if (sel && !names.some(n => n.toLowerCase() === sel.toLowerCase())) names.push(cap(sel));
   return names.map(n => `<option value="${esc(n.toLowerCase())}" ${sel && n.toLowerCase() === sel.toLowerCase() ? "selected" : ""}>${esc(n)}</option>`).join("")
     + `<option value="__new">＋ Add new…</option>`;
 }
-function unitOptions(sel){ return options(withCurrent(lists.units.length ? lists.units : ["pcs"], sel), sel) + NEW_OPT; }
+function unitOptions(sel){ return options(withCurrent(allUnits(), sel), sel) + NEW_OPT; }
 function sizeFields(it, { locked = false } = {}){
   const r = rawSizes(it), main = mainPack(it);
   return `<div class="units-card ${locked ? "locked" : ""}" id="fPackBox" data-slot="${main?.k || "ctn"}" data-keeppp="${r.pc ? r.pp : 0}" data-keeppn="${esc(r.pn)}">
@@ -755,24 +767,25 @@ function packSetup(it, onDone){
 function codeFields(it){
   const n = codesOf(it).length;
   return `<details class="packing codes-box" id="fCodesBox" open>
-    <summary>Barcodes &amp; QR codes <span class="hint">· <span id="fCodesN">${n || "none yet"}</span></span></summary>
+    <summary>Barcodes <span class="hint">· <span id="fCodesN">${n || "none yet"}</span></span></summary>
     <div id="fCodes" class="codes-edit"></div>
     <div class="codes-add">
-      <button type="button" class="btn primary scan-btn" id="fCodeScan">${BARCODE_ICON}<span>Scan barcode / QR</span></button>
+      <button type="button" class="btn primary scan-btn" id="fCodeScan">${BARCODE_ICON}<span>Scan barcode</span></button>
       <button type="button" class="btn" id="fCodeType">Type code</button>
+      <button type="button" class="btn" id="fCodeMake">Make barcode</button>
     </div>
-    <p class="hint">Scan the code on the product. Add one for each brand or pack size. A carton code adds a whole carton.</p>
+    <p class="hint">Scan the code on the product. Add one for each brand or pack size. No barcode on it? Tap <b>Make barcode</b> and print a label.</p>
   </details>`;
 }
 /* the editable list of barcodes inside the item form */
-function codesEditor(p, startCodes, getUnitNow, getSizes = () => ({ pn: "packet", cn: "carton" })){
+function codesEditor(p, startCodes, getUnitNow, getSizes = () => ({ pn: "packet", cn: "carton" }), onAdd = null){
   let list = startCodes.map(c => ({ ...c }));
   const box = p.querySelector("#fCodes");
   const draw = () => {
     p.querySelector("#fCodesN").textContent = list.length || "none";
     box.innerHTML = list.length ? list.map((c, i) => `
       <div class="code-row" data-i="${i}">
-        <div class="code-top"><span class="kind-badge ${codeKind(c)}" title="${codeKind(c) === "qr" ? "QR code" : "Barcode"}">${codeKind(c) === "qr" ? QR_ICON + "QR" : BARCODE_ICON}</span><input class="code-val" data-k="code" value="${esc(c.code)}" aria-label="Barcode or QR code" spellcheck="false" autocomplete="off" inputmode="text">
+        <div class="code-top"><span class="kind-badge">${BARCODE_ICON}</span><input class="code-val" data-k="code" value="${esc(c.code)}" aria-label="Barcode" spellcheck="false" autocomplete="off" inputmode="text">
           <button type="button" class="btn ghost sm" data-rm="${i}" aria-label="Remove barcode ${esc(c.code)}">✕</button></div>
         <div class="code-opts">
           <select data-k="per" aria-label="One scan is a">${PER_OPTS.map(([v, l]) => `<option value="${v}" ${c.per===v?"selected":""}>${v === "pkt" ? cap(getSizes().pn) : v === "ctn" ? cap(getSizes().cn) : l}</option>`).join("")}</select>
@@ -794,26 +807,45 @@ function codesEditor(p, startCodes, getUnitNow, getSizes = () => ({ pn: "packet"
     if (list.some(c => normCode(c.code) === normCode(v))) return { ok: false, text: `${v} is already on this item` };
     list.push({ code: v, per: "pcs", brand: "", kind: kindOf(v) }); draw();
     p.querySelector("#fCodesBox").open = true;
+    onAdd && onAdd(v);
     return { ok: true, text: `Added ${v}` };
   };
   p.querySelector("#fCodeScan").addEventListener("click", () =>
-    openScanner(code => { const r = add(code); return { ...r, close: r.ok }; }, { title: "Scan the barcode or QR code" }));
+    openScanner(code => { const r = add(code); return { ...r, close: r.ok }; }, { title: "Scan the barcode" }));
+  p.querySelector("#fCodeMake")?.addEventListener("click", () => {
+    let code; do { code = newStoreBarcode(); } while (list.some(c => c.code === code));
+    list.push({ code, per: "pcs", brand: "" }); draw();
+    toast(`New barcode ${code}. After saving, open the item → Barcode label to print or share it.`);
+  });
   p.querySelector("#fCodeType").addEventListener("click", () => {
     list.push({ code: "", per: "pcs", brand: "" }); draw();
     p.querySelector("#fCodesBox").open = true;
     box.querySelector(".code-row:last-child .code-val")?.focus();
   });
   draw();
-  return { get: () => list.map(c => ({ code: String(c.code||"").trim(), per: c.per || "pcs", ...(c.per === "n" ? { n: int(c.n) } : {}), ...(c.brand?.trim() ? { brand: c.brand.trim() } : {}), ...(c.kind || guessKind(c.code) ? { kind: c.kind || guessKind(c.code) } : {}) })).filter(c => c.code) };
+  return { add, setBrand: (code, brand) => { const c = list.find(x => x.code === code); if (c && !c.brand && brand) { c.brand = brand.slice(0, 40); draw(); } },
+           get: () => list.map(c => ({ code: String(c.code||"").trim(), per: c.per || "pcs", ...(c.per === "n" ? { n: int(c.n) } : {}), ...(c.brand?.trim() ? { brand: c.brand.trim() } : {}), ...(c.kind || guessKind(c.code) ? { kind: c.kind || guessKind(c.code) } : {}) })).filter(c => c.code) };
 }
 
 function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
   const isNew = !it;
   it = it || { name: preset?.name || "", category: preset?.cat || (lists.categories.includes(ui.cat) ? ui.cat : (lists.categories[0] || "Other")),
                unit: lists.units[0] || "pcs", qty:0, min:0, place:"" };
-  if (preset?.code) it = { ...it, _codes: true, codes: [{ code: preset.code, per: preset.per || "pcs", kind: kindOf(preset.code) }] };
+  if (preset?.code) it = { ...it, _codes: true, codes: [{ code: preset.code, per: preset.per || "pcs", kind: kindOf(preset.code), ...(preset.brand ? { brand: preset.brand } : {}) }] };
+  if (isNew && preset?.image) it = { ...it, image: preset.image };
+  let photo = it.image || "";
   openSheet(`<h3>${isNew ? "New item" : "Edit item"}</h3>
     <form id="fItem" novalidate>
+      <div class="photo-row">
+        <div class="photo-box" id="fPhotoBox">${photo ? imgTag(photo, "photo") : `<span aria-hidden="true">📷</span>`}</div>
+        <div class="photo-btns">
+          <label class="btn sm" for="fPhoto">${photo ? "Change photo" : "Take photo"}</label>
+          <input id="fPhoto" type="file" accept="image/*" capture="environment" hidden>
+          <button type="button" class="btn sm" id="fPhotoRm" ${photo ? "" : "hidden"}>Remove</button>
+          ${isNew ? `<button type="button" class="btn sm primary scan-btn" id="fLookup">${BARCODE_ICON}<span>Scan to fill details</span></button>` : ""}
+        </div>
+      </div>
+      <p class="hint lookup-msg" id="fLookupMsg" ${preset?.found ? "" : "hidden"}>${preset?.found ? `Details found online (${esc(preset.found)}). Check them before saving.` : ""}</p>
       <div class="field"><label for="fName">Item name</label><input id="fName" maxlength="80" value="${esc(it.name)}" placeholder="e.g. Highball glass" autocomplete="off"></div>
       ${isNew && QUICK_PICKS.some(([n, c]) => !preset?.cat || c === preset.cat) ? `<div class="picks small" id="fPicks">${QUICK_PICKS.filter(([n, c]) => !preset?.cat || c === preset.cat).map(([n,c]) => `<button type="button" class="chip" data-name="${esc(n)}" data-cat="${esc(c)}">${esc(n)}</button>`).join("")}</div>` : ""}
       <div class="grid2">
@@ -883,7 +915,41 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
       p.querySelector("#fName").value = c.dataset.name; p.querySelector("#fCat").value = c.dataset.cat; p.querySelector("#fCat").dispatchEvent(new Event("change"));
       p.querySelectorAll("#fPicks .chip").forEach(x => x.setAttribute("aria-pressed", x === c));
     });
-    const ce = codesEditor(p, codesOf(it), unitNow, getS);
+    /* product photo */
+    const setPhoto = src => {
+      photo = src || "";
+      p.querySelector("#fPhotoBox").innerHTML = photo ? imgTag(photo, "photo") : `<span aria-hidden="true">📷</span>`;
+      p.querySelector('label[for="fPhoto"]').textContent = photo ? "Change photo" : "Take photo";
+      p.querySelector("#fPhotoRm").hidden = !photo;
+    };
+    p.querySelector("#fPhoto").addEventListener("change", async e => {
+      const f = e.target.files?.[0]; e.target.value = ""; if (!f) return;
+      try { setPhoto(await shrinkPhoto(f)); } catch (_) { toast("Couldn't read that photo"); }
+    });
+    p.querySelector("#fPhotoRm").addEventListener("click", () => setPhoto(""));
+    /* look a scanned barcode up online and fill the empty boxes */
+    const msg = p.querySelector("#fLookupMsg");
+    const fillFrom = async code => {
+      if (!isNew || !/^\d{8,14}$/.test(code)) return;
+      msg.hidden = false; msg.textContent = "Looking up the product online…";
+      const r = navigator.onLine === false ? null : await lookupProduct(code);
+      if (!p.isConnected) return;
+      if (!r) { msg.textContent = "Not found online. Type the name yourself."; p.querySelector("#fName").focus(); return; }
+      const nm = p.querySelector("#fName");
+      if (!nm.value.trim()) nm.value = r.name;
+      if (r.brand) ce.setBrand(code, r.brand);
+      if (!photo && r.image) setPhoto(r.image);
+      msg.textContent = `Found: ${r.name} (${r.source}). Check the details, choose the category and units, then save.`;
+    };
+    const ce = codesEditor(p, codesOf(it), unitNow, getS, fillFrom);
+    p.querySelector("#fLookup")?.addEventListener("click", () =>
+      openScanner(code => {
+        const owner = findByCode(code);
+        if (owner) return { ok: false, text: `${code} already belongs to ${owner.it.name}` };
+        const already = ce.get().some(c => normCode(c.code) === normCode(code));
+        if (!already) p.querySelector("#fCodeScan") && ce.add(code); else fillFrom(code);
+        return { ok: true, text: "Got it", close: true };
+      }, { title: "Scan the product barcode" }));
     if (!it.name) p.querySelector("#fName").focus();
 
     p.querySelector("#fItem").addEventListener("submit", async e => {
@@ -905,7 +971,8 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
         if (c.per === "ctn" && !s.pc) return err.textContent = `Barcode ${c.code} is set as a carton. Enter what 1 carton holds under Packing, or choose “Other qty”.`;
       }
       const base = { name, category: p.querySelector("#fCat").value, unit: unitNow(), min, place: p.querySelector("#fPlace").value.trim(),
-                     perPacket: s.pp, perCarton: s.pc, packName: s.pn, cartonName: s.cn, codes, fast: p.querySelector("#fFast").checked };
+                     perPacket: s.pp, perCarton: s.pc, packName: s.pn, cartonName: s.cn, codes, fast: p.querySelector("#fFast").checked, image: photo };
+      if (!photo) delete base.image;
       if (lockedUnits) for (const k of UNIT_KEYS) { if (k in it) base[k] = it[k]; else delete base[k]; }   // staff can't change units
       closeSheet(layer, true);
       try {
@@ -919,6 +986,7 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
           toast(`Added ${name}`);
         } else {
           saved = { ...stripLegacy(it), ...base, updatedAt: Date.now() };
+          if (!photo) delete saved.image;
           await putItem(saved);
           toast("Saved");
         }
@@ -932,7 +1000,7 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
 function itemDetail(id, { code = null } = {}){
   const it = items.find(x => x.id === id); if (!it) return;
   const st = status(it), hist = moves.filter(m => m.itemId === id).slice(0, 8), s = sizes(it), codes = codesOf(it);
-  openSheet(`<h3>${esc(it.name)}</h3>
+  openSheet(`<div class="detail-head">${imgTag(it.image, "detail-img")}<h3>${esc(it.name)}</h3></div>
     <div class="big"><b class="num">${shown(it)}</b><span>${esc(U(it))}</span><span class="pill ${st}">${statusLabel(st)}</span>
       <button type="button" class="btn sm fix-stock" id="fixStockBtn">✎ Fix stock</button></div>
     ${s.pp || s.pc ? `<p class="pack big-pack">${esc(packText(shown(it), s, U(it)))}</p>` : ""}
@@ -941,8 +1009,9 @@ function itemDetail(id, { code = null } = {}){
       <button class="btn act out" type="button" data-quick="out"><span aria-hidden="true">↑</span>Stock out</button>
     </div>
     <p class="hint">${esc(it.category)} · warn at ${+it.min||0} ${esc(U(it))}${it.place ? ` · kept at ${esc(it.place)}` : ""}${s.pp||s.pc ? `<br>${esc(sizeText(s, U(it)))}` : ""}</p>
-    <div class="codes">${codes.map(c => `<span class="code ${codeKind(c)}" title="${esc(c.code)}">${codeKind(c) === "qr" ? QR_ICON : BARCODE_ICON}${esc(shortCode(c.code))} <small>${codeKind(c) === "qr" ? "QR · " : ""}${esc(codeLabel(c, it))}${c.brand ? ` · ${esc(c.brand)}` : ""}</small></span>`).join("")}
-      <button type="button" class="btn sm scan-btn" id="addCodeBtn">${BARCODE_ICON}<span>${codes.length ? "Add another barcode / QR" : "Add barcode / QR"}</span></button></div>
+    <div class="codes">${codes.map(c => `<span class="code" title="${esc(c.code)}">${BARCODE_ICON}${esc(shortCode(c.code))} <small>${esc(codeLabel(c, it))}${c.brand ? ` · ${esc(c.brand)}` : ""}</small></span>`).join("")}
+      <button type="button" class="btn sm scan-btn" id="addCodeBtn">${BARCODE_ICON}<span>${codes.length ? "Add another barcode" : "Add barcode"}</span></button>
+      <button type="button" class="btn sm" id="labelBtn">🏷 ${codes.length ? "Barcode label · share / print" : "Make a barcode"}</button></div>
     <h2 style="font-size:1rem">History <span class="hint">· tap Edit on an entry to change its amount</span></h2>
     ${hist.length ? `<ul class="mini-feed">${hist.map(m => moveLi(m,false)).join("")}</ul>` : `<p class="hint">No changes recorded yet.</p>`}
     <div class="actions"><button class="btn danger" type="button" id="delBtn">Delete</button><button class="btn" type="button" id="mergeBtn">Merge…</button><button class="btn" type="button" id="editBtn">Edit details</button></div>`,
@@ -952,6 +1021,7 @@ function itemDetail(id, { code = null } = {}){
     p.querySelector("#delBtn").addEventListener("click", () => confirmDelete(it));
     p.querySelector("#mergeBtn").addEventListener("click", () => mergeSheet(it));
     p.querySelector("#fixStockBtn").addEventListener("click", () => fixStock(it));
+    p.querySelector("#labelBtn").addEventListener("click", () => barcodeLabel(it));
     p.querySelector("#addCodeBtn").addEventListener("click", () => {
       openScanner(code => {
         const owner = findByCode(code);
@@ -960,7 +1030,7 @@ function itemDetail(id, { code = null } = {}){
         const c = { code, per: scanLevel(it), kind: kindOf(code) };
         addCodeToItem(it, c).then(() => { toast(`Barcode added to ${it.name}`); itemDetail(it.id); }).catch(() => {});
         return { ok: true, text: `Saved: ${codeLabel(c, it)} barcode`, close: true };
-      }, { title: `Add barcode or QR · ${it.name}`, level: it });
+      }, { title: `Add barcode · ${it.name}`, level: it });
     });
   });
 }
@@ -1155,8 +1225,9 @@ function confirmDelete(it){
 
 /* ---------- unknown barcode: create a new item or link to an existing one ---------- */
 function unknownCode(code, { layer = 1, onResolved = null } = {}){
-  openSheet(`<h3>New ${kindOf(code) === "qr" ? "QR code" : "barcode"}</h3>
+  openSheet(`<h3>New barcode</h3>
     <p>No item has the code <b class="num" title="${esc(code)}">${esc(shortCode(code))}</b> yet.</p>
+    <div class="lookup-card" id="ucFound" ${/^\d{8,14}$/.test(code) ? "" : "hidden"}><p class="hint">Looking up the product online…</p></div>
     <div class="choice">
       <button class="btn primary" type="button" id="ucNew">＋ Create a new item with this code</button>
     </div>
@@ -1171,10 +1242,21 @@ function unknownCode(code, { layer = 1, onResolved = null } = {}){
     <div class="err" id="ucErr" role="alert"></div>
     <div class="actions"><button class="btn" type="button" data-close>Cancel</button><button class="btn" type="button" id="ucLink">Link barcode</button></div>`,
   p => {
+    let found = null;
+    if (/^\d{8,14}$/.test(code)) (async () => {
+      const r = navigator.onLine === false ? null : await lookupProduct(code);
+      const box = p.querySelector("#ucFound"); if (!box) return;
+      if (!r) { box.innerHTML = `<p class="hint">Not found in the online product lists. You can type the details.</p>`; return; }
+      found = r;
+      box.innerHTML = `${imgTag(r.image, "lookup-img")}<div><b>${esc(r.name)}</b><span class="hint">${r.brand ? esc(r.brand) + " · " : ""}from ${esc(r.source)}</span></div>`;
+      p.querySelector("#ucNew").textContent = `＋ Create “${r.name}”`;
+      if (!p.querySelector("#ucBrand").value && r.brand) p.querySelector("#ucBrand").value = r.brand;
+    })();
     p.querySelector("#ucNew").addEventListener("click", () => {
       const per = p.querySelector("input[name=ucPer]:checked").value;
+      const brand = p.querySelector("#ucBrand").value.trim();
       closeSheet(layer, true);
-      itemForm(null, { code, per }, { layer, onSaved: it => onResolved && onResolved(it, codesOf(it).find(c => normCode(c.code) === normCode(code))) });
+      itemForm(null, { code, per, brand, ...(found ? { name: found.name, image: found.image, found: found.source } : {}) }, { layer, onSaved: it => onResolved && onResolved(it, codesOf(it).find(c => normCode(c.code) === normCode(code))) });
     });
     p.querySelector("#ucLink").addEventListener("click", async () => {
       const id = p.querySelector("#ucItem").value, per = p.querySelector("input[name=ucPer]:checked").value;
@@ -1447,7 +1529,7 @@ function loadScript(src){
 async function loadQr(){ if (!window.Html5Qrcode) await loadScript(QR_URL); return window.Html5Qrcode; }
 function qrFormats(){
   const F = window.Html5QrcodeSupportedFormats;   // fewer formats = faster, more reliable reading
-  return [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39, F.ITF, F.QR_CODE];
+  return [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39, F.ITF];
 }
 function scanMsg(text, cls = ""){ const m = $("#scanMsg"); m.textContent = text; m.className = "scan-msg " + cls; }
 function setScanTitle(t){ $("#scanTitle").textContent = t; }
@@ -1471,7 +1553,7 @@ $("#scanKeep").addEventListener("change", e => {
   $("#scanClose").textContent = e.target.checked ? "Done" : "Close";
   scanMsg(e.target.checked ? "Keep scanning is on: scan one item after another, then tap Done." : "Each scan takes you straight to the product.");
 });
-async function openScanner(onCode, { title = "Scan barcode or QR", multi = false, onClose = null, level = null, skip = null, keepToggle = false } = {}){
+async function openScanner(onCode, { title = "Scan barcode", multi = false, onClose = null, level = null, skip = null, keepToggle = false } = {}){
   scanCb = onCode; scanMulti = multi; scanOnClose = onClose; scanSkip = skip;
   setScanTitle(title);
   $("#scanKeepBox").hidden = !keepToggle;
@@ -1500,8 +1582,8 @@ async function startWebCamera(){
       disableFlip: true,
       aspectRatio: 1.333,
       // wide, short box: barcodes are long. The whole width is read.
-      // big area that fits both long barcodes and square QR codes
-      qrbox: (w, h) => ({ width: Math.max(200, Math.floor(w * 0.9)), height: Math.max(160, Math.floor(h * 0.8)) }),
+      // wide area for long barcodes
+      qrbox: (w, h) => ({ width: Math.max(200, Math.floor(w * 0.92)), height: Math.max(110, Math.floor(h * 0.6)) }),
       // sharper picture + continuous focus = much easier reading of small barcodes
       videoConstraints: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 }, advanced: [{ focusMode: "continuous" }] }
     }, onDecoded, () => {});
@@ -2129,4 +2211,167 @@ function manageCategory(cat){
       } catch (ex) { toast(ex?.code === "permission-denied" ? "Only admins can change categories." : "Couldn't save. Try again."); }
     });
   });
+}
+
+/* ================= product details from a barcode (online lookup) ================= */
+// Free, open product databases. Good for drinks and packaged goods; crockery is rarely listed.
+const LOOKUP_HOSTS = ["world.openfoodfacts.org", "world.openproductsfacts.org"];
+async function lookupProduct(code){
+  const c = String(code || "").trim();
+  if (!/^\d{8,14}$/.test(c)) return null;            // only real retail barcodes are in these databases
+  const fields = "product_name,product_name_en,generic_name,brands,quantity,image_front_small_url,image_front_url,image_small_url";
+  for (const host of LOOKUP_HOSTS) {
+    try {
+      const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 7000);
+      const r = await fetch(`https://${host}/api/v2/product/${encodeURIComponent(c)}.json?fields=${fields}`, { signal: ctl.signal });
+      clearTimeout(t);
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (j && j.status === 1 && j.product) {
+        const p = j.product;
+        const base = String(p.product_name_en || p.product_name || p.generic_name || "").trim();
+        const brand = String(p.brands || "").split(",")[0].trim();
+        const qty = String(p.quantity || "").trim();
+        let name = base && brand && !base.toLowerCase().includes(brand.toLowerCase()) ? `${brand} ${base}` : (base || brand);
+        if (qty && name && !name.toLowerCase().includes(qty.toLowerCase())) name = `${name} ${qty}`;
+        if (!name) continue;
+        return { name: name.slice(0, 80), brand, quantity: qty, image: p.image_front_small_url || p.image_small_url || p.image_front_url || "", source: host.replace("world.", "") };
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+/* ================= product photo: taken with the camera, made small ================= */
+async function shrinkPhoto(file, max = 360){
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", 0.72);          // ~20–40 KB, stored with the item
+  } finally { URL.revokeObjectURL(url); }
+}
+const imgTag = (src, cls) => src ? `<img class="${cls}" src="${esc(src)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : "";
+
+/* ================= make, share and print barcodes ================= */
+const JSB_URL = "https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js";
+async function loadJsBarcode(){ if (!window.JsBarcode) await loadScript(JSB_URL); return window.JsBarcode; }
+function ean13Check(d12){ let s = 0; for (let i = 0; i < 12; i++) s += +d12[i] * (i % 2 ? 3 : 1); return (10 - s % 10) % 10; }
+const isEan13 = c => /^\d{13}$/.test(c) && ean13Check(c.slice(0, 12)) === +c[12];
+/* a new barcode only used inside your business: EAN-13 starting with 29 (the in-store range), never clashing */
+function newStoreBarcode(){
+  for (let tries = 0; tries < 50; tries++) {
+    const r = Array.from(crypto.getRandomValues(new Uint32Array(10)), n => n % 10).join("");
+    const d12 = "29" + r;
+    const code = d12 + ean13Check(d12);
+    if (!findByCode(code)) return code;
+  }
+  return "29" + Date.now().toString().slice(-10) + "0";
+}
+async function drawLabel(it, c){
+  const JB = await loadJsBarcode();
+  const bc = document.createElement("canvas");
+  JB(bc, c.code, { format: isEan13(c.code) ? "EAN13" : "CODE128", width: 3, height: 110, fontSize: 26, margin: 12, background: "#ffffff", lineColor: "#000000" });
+  const W = Math.max(640, bc.width + 40), H = bc.height + 120;
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const g = cv.getContext("2d");
+  g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
+  g.fillStyle = "#000"; g.textAlign = "center";
+  g.font = "bold 30px system-ui, -apple-system, Segoe UI, sans-serif";
+  let name = it.name; while (g.measureText(name).width > W - 40 && name.length > 4) name = name.slice(0, -2);
+  g.fillText(name === it.name ? name : name + "…", W / 2, 44);
+  g.font = "22px system-ui, -apple-system, Segoe UI, sans-serif"; g.fillStyle = "#444";
+  g.fillText(`1 ${codeLabel(c, it)}${c.brand ? " · " + c.brand : ""}`, W / 2, 78);
+  g.drawImage(bc, (W - bc.width) / 2, 96);
+  return cv;
+}
+const fileSafe = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "item";
+async function shareCanvas(cv, title){
+  const blob = await new Promise(r => cv.toBlob(r, "image/png"));
+  const name = fileSafe(title) + "-barcode.png";
+  const C = window.Capacitor;
+  if (C?.isNativePlatform?.() && C.Plugins?.Filesystem && C.Plugins?.Share) {          // phone app
+    const data = cv.toDataURL("image/png").split(",")[1];
+    const f = await C.Plugins.Filesystem.writeFile({ path: name, data, directory: "CACHE" });
+    await C.Plugins.Share.share({ title, text: title, files: [f.uri] });
+    return "shared";
+  }
+  const file = new File([blob], name, { type: "image/png" });
+  if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title, text: title }); return "shared"; }
+  downloadBlob(blob, name); return "downloaded";
+}
+function downloadBlob(blob, name){
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+function printLabels(cv, copies, title){
+  const src = cv.toDataURL("image/png"), n = Math.max(1, Math.min(200, copies | 0));
+  const w = window.open("", "_blank");
+  if (!w) return toast("Allow pop-ups to print labels, or use Download and print the picture.");
+  w.document.write(`<!doctype html><title>${esc(title)}</title><style>
+    @page{margin:8mm} body{margin:0;font-family:system-ui,sans-serif}
+    .g{display:grid;grid-template-columns:repeat(auto-fill,minmax(62mm,1fr));gap:4mm}
+    img{width:100%;border:1px dashed #bbb;break-inside:avoid}</style>
+    <div class="g">${Array.from({ length: n }, () => `<img src="${src}" alt="">`).join("")}</div>
+    <script>window.onload=()=>{setTimeout(()=>window.print(),300)}<\/script>`);
+  w.document.close();
+}
+
+function barcodeLabel(it, { code = null } = {}){
+  const live = () => items.find(x => x.id === it.id) || it;
+  const native = !!window.Capacitor?.isNativePlatform?.();
+  const draw = () => {
+    const cur = live(), codes = codesOf(cur);
+    let chosen = code ? codes.find(c => normCode(c.code) === normCode(code)) : codes[0];
+    const mp = mainPack(cur);
+    openSheet(`<h3>Barcode label</h3>
+      <p class="hint">${esc(cur.name)}</p>
+      ${codes.length ? `<div class="field"><label for="blCode">Barcode</label>
+        <select id="blCode">${codes.map(c => `<option value="${esc(c.code)}" ${chosen && c.code === chosen.code ? "selected" : ""}>${esc(c.code)} · 1 ${esc(codeLabel(c, cur))}${c.brand ? " · " + esc(c.brand) : ""}</option>`).join("")}</select></div>`
+        : `<p>This item has no barcode yet. Make one now, then print it or share it.</p>`}
+      <div class="bl-new">
+        <span class="hint">${codes.length ? "Make another barcode for:" : "Make a barcode for:"}</span>
+        <div class="bl-new-row">
+          <button type="button" class="btn ${codes.length ? "" : "primary"}" data-mk="pcs">1 ${esc(U(cur) === "pcs" ? "piece" : unitFor(1, U(cur)))}</button>
+          ${mp ? `<button type="button" class="btn" data-mk="${mp.k}">1 ${esc(mp.name)} (${mp.n} ${esc(U(cur))})</button>` : ""}
+        </div>
+      </div>
+      <div class="bl-preview" id="blPrev">${codes.length ? `<p class="hint">Drawing barcode…</p>` : ""}</div>
+      ${codes.length ? `<div class="bl-actions">
+        <button type="button" class="btn primary" id="blShare">Share</button>
+        <button type="button" class="btn" id="blDown">Download</button>
+        ${native ? "" : `<span class="bl-print"><input id="blCopies" type="number" min="1" max="200" value="1" aria-label="Copies"><button type="button" class="btn" id="blPrint">Print</button></span>`}
+      </div>` : ""}`, async p => {
+      let cv = null;
+      const render = async () => {
+        const c = codesOf(live()).find(x => x.code === p.querySelector("#blCode")?.value); if (!c) return;
+        p.querySelector("#blPrev").innerHTML = `<p class="hint">Drawing barcode…</p>`;
+        try { cv = await drawLabel(live(), c); cv.className = "bl-canvas"; p.querySelector("#blPrev").replaceChildren(cv); }
+        catch (_) { cv = null; p.querySelector("#blPrev").innerHTML = `<p class="err">Couldn't draw the barcode. The first time needs internet.</p>`; }
+      };
+      p.querySelector("#blCode")?.addEventListener("change", render);
+      p.querySelectorAll("[data-mk]").forEach(b => b.addEventListener("click", async () => {
+        const per = b.dataset.mk, codeNew = newStoreBarcode();
+        b.disabled = true;
+        try { await addCodeToItem(live(), { code: codeNew, per }); toast(`Barcode ${codeNew} saved to ${live().name}`); code = codeNew; itemDetail(it.id); draw(); }
+        catch (_) { b.disabled = false; }
+      }));
+      p.querySelector("#blShare")?.addEventListener("click", async () => {
+        if (!cv) return;
+        try { const r = await shareCanvas(cv, live().name); if (r === "downloaded") toast("Saved the label picture"); }
+        catch (e) { if (!/abort|cancel/i.test(String(e?.name || e?.message || e))) toast("Couldn't share. Try Download."); }
+      });
+      p.querySelector("#blDown")?.addEventListener("click", async () => {
+        if (!cv) return;
+        if (native) { try { await shareCanvas(cv, live().name); } catch (_) {} return; }
+        cv.toBlob(b => downloadBlob(b, fileSafe(live().name) + "-barcode.png"), "image/png");
+      });
+      p.querySelector("#blPrint")?.addEventListener("click", () => cv && printLabels(cv, +p.querySelector("#blCopies").value || 1, live().name));
+      render();
+    }, { layer: 2 });
+  };
+  draw();
 }

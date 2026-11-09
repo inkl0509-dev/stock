@@ -6,7 +6,7 @@
 //  - A new version of this file takes over by itself and the open app reloads once.
 //
 // Changing VERSION is no longer required for updates, but it clears old saved copies.
-const VERSION = "2026-11-09-6";
+const VERSION = "2026-11-09-8";
 const CACHE = "crockery-stock-" + VERSION;
 const SHELL = [
   "/", "/index.html", "/admin.html",
@@ -45,7 +45,7 @@ self.addEventListener("fetch", e => {
   if (url.hostname.endsWith("googleapis.com") && !url.hostname.startsWith("fonts.")) return;
 
   // Firebase SDK, barcode library and fonts never change at a given address → saved copy first
-  if (url.hostname === "www.gstatic.com" || url.hostname === "fonts.gstatic.com" || url.hostname === "fonts.googleapis.com" || url.hostname === "unpkg.com") {
+  if (url.hostname === "www.gstatic.com" || url.hostname === "fonts.gstatic.com" || url.hostname === "fonts.googleapis.com" || url.hostname === "unpkg.com" || url.hostname === "cdnjs.cloudflare.com") {
     e.respondWith(caches.open(CACHE).then(async c => {
       const hit = await c.match(req);
       if (hit) return hit;
