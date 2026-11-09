@@ -815,3 +815,10 @@ li.is-fix .what{color:var(--accent)}
 .fix-ico{font-size:.78rem;font-weight:600;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:3px 8px;right:10px}
 .feed li.can-fix,.mini-feed li.can-fix{padding-right:70px}
 @media (max-width:560px){ .top-actions #hdrAdmin .lbl{display:inline} .top-actions #hdrAdmin{padding:9px 12px;background:var(--accent-soft);color:var(--accent)} }
+
+/* edit category */
+.add-bar{display:flex;gap:8px;flex-wrap:wrap}
+.add-bar .add-here{flex:1 1 200px;width:auto}
+.add-bar .edit-cat{flex:0 0 auto;min-height:46px}
+.cm-del{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:10px}
+.cm-del .btn{align-self:flex-start}

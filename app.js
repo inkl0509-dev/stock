@@ -350,7 +350,8 @@ function renderChips(){
   const low = items.filter(it => status(it) !== "ok").length;
   const noCode = items.filter(it => !codesOf(it).length).length;
   const cats = [...(low ? ["Low stock"] : []), ...(noCode ? ["No barcode"] : []), ...lists.categories.filter(c => counts[c]), ...Object.keys(counts).filter(c => !lists.categories.includes(c)).sort(), "All"];
-  if (ui.cat && !cats.includes(ui.cat)) ui.cat = "";
+  // keep a chosen category even while it has no items (e.g. just renamed, items still moving)
+  if (ui.cat && !cats.includes(ui.cat)) { if ((lists.categories || []).includes(ui.cat) || ui.cat === keepCat) cats.splice(cats.length - 1, 0, ui.cat); else ui.cat = ""; }
   $("#chips").innerHTML = cats.map(c => `<button type="button" class="chip ${c==="Low stock"?"warn":c==="No barcode"?"nocode":c==="All"?"allc":""}" data-cat="${esc(c)}" aria-pressed="${ui.cat===c}">${c==="All" ? "All items" : esc(c)}<span class="c">${c==="All"?items.length:c==="Low stock"?low:c==="No barcode"?noCode:counts[c]}</span></button>`).join("");
 }
 
@@ -397,7 +398,7 @@ function renderList(){
   const list = sorted();
   const setupBanner = ui.cat === "No barcode" && list.length ? `<div class="setup-banner">${BARCODE_ICON}<div><b>${plural(list.length, "item has", "items have")} no barcode.</b><span>Scan them one after another. Each scan is saved to the item shown.</span></div><button type="button" class="btn primary" data-act="setup">Start</button></div>` : "";
   const cat = realCat(), q = ui.q.trim();
-  const addBar = `<div class="add-bar"><button type="button" class="btn add-here" data-act="addhere">＋ ${cat ? `New item in <b>${esc(cat)}</b>` : "New item"}</button></div>`;
+  const addBar = `<div class="add-bar"><button type="button" class="btn add-here" data-act="addhere">＋ ${cat ? `New item in <b>${esc(cat)}</b>` : "New item"}</button>${cat && amAdmin ? `<button type="button" class="btn edit-cat" data-act="editcat">✎ Edit category</button>` : ""}</div>`;
   if (!list.length) {
     el.innerHTML = `<div class="empty"><h3>Nothing matches</h3><p>${q ? `No item called “${esc(q)}”${cat ? ` in ${esc(cat)}` : ""}.` : "Try another search or category."}</p>
       <div class="empty-actions">${q ? `<button class="btn primary" type="button" data-act="addhere">＋ Create “${esc(q)}”${cat ? ` in ${esc(cat)}` : ""}</button>` : ""}
@@ -1649,6 +1650,7 @@ $("#list").addEventListener("click", e => {
   else if (act === "open") itemDetail(id);
   else if (act === "add") itemForm();
   else if (act === "pick") itemForm(null, { name: b.dataset.name, cat: b.dataset.cat });
+  else if (act === "editcat") manageCategory(realCat());
   else if (act === "addhere") itemForm(null, { name: ui.q.trim() ? cap(ui.q.trim()) : "", cat: realCat() || undefined });
   else if (act === "setup") barcodeSetup();
   else if (act === "clear") { ui.q = ""; ui.cat = ""; $("#q").value = ""; render(); $("#q").focus(); }
@@ -1971,3 +1973,79 @@ document.addEventListener("visibilitychange", () => { if (document.hidden) quick
 window.addEventListener("pagehide", quickFlushAll);
 
 applyView();   // show the right page on start (Home, #items or #activity)
+
+
+/* ================= categories: rename or delete (admins) ================= */
+var keepCat = "";   // category being renamed / moved into: keep it selected while saving
+function allCategories(){
+  return [...new Set([...(lists.categories || []), ...items.map(i => i.category).filter(Boolean)])];
+}
+async function saveCategories(next){
+  await setDoc(doc(db, "settings", "lists"), { categories: next, updatedAt: Date.now() }, { merge: true });
+}
+async function moveItems(from, to){
+  let n = 0;
+  for (const it of items.filter(x => x.category === from)) {
+    const u = { ...it, category: to, updatedAt: Date.now() };
+    Object.assign(it, u); await putItem(u); n++;
+  }
+  return n;
+}
+function manageCategory(cat){
+  if (!cat || !amAdmin) return;
+  const used = items.filter(i => i.category === cat).length;
+  const others = allCategories().filter(c => c !== cat);
+  if (!others.length) others.push("Other");
+  openSheet(`<h3>Category: ${esc(cat)}</h3>
+    <p class="hint">${plural(used, "item", "items")} in this category.</p>
+    <form id="cmRename" novalidate class="field">
+      <label for="cmName">Rename</label>
+      <div class="join"><input id="cmName" maxlength="40" value="${esc(cat)}" autocomplete="off"><button class="btn primary" type="submit">Save name</button></div>
+      <p class="hint">${used === 1 ? "The item moves to the new name. " : used ? `All ${used} items move to the new name. ` : ""}Using an existing name merges the two categories.</p>
+    </form>
+    <div class="cm-del">
+      <h2 style="font-size:1rem">Delete category</h2>
+      ${used ? `<div class="field"><label for="cmTo">Move its ${plural(used, "item", "items")} to</label><select id="cmTo">${options(others, others.includes("Other") ? "Other" : others[0])}</select></div>`
+             : `<p class="hint">No items use it, so it can be deleted straight away.</p>`}
+      <button type="button" class="btn danger" id="cmDel">Delete “${esc(cat)}”</button>
+    </div>
+    <div class="err" id="cmErr" role="alert"></div>`, p => {
+    const err = p.querySelector("#cmErr");
+    p.querySelector("#cmName").select();
+    p.querySelector("#cmRename").addEventListener("submit", async e => {
+      e.preventDefault();
+      const v = p.querySelector("#cmName").value.trim().replace(/\s+/g, " ");
+      if (!v) return err.textContent = "Type a name.";
+      if (v === cat) return closeSheet(1, true);
+      const cats = [...(lists.categories || [])];
+      const existing = allCategories().find(c => c !== cat && c.toLowerCase() === v.toLowerCase());
+      const target = existing || v;
+      const next = existing ? cats.filter(c => c !== cat) : (cats.includes(cat) ? cats.map(c => c === cat ? v : c) : [...cats, v]);
+      closeSheet(1, true);
+      if (ui.cat === cat) ui.cat = target;   // keep showing the same items under the new name
+      keepCat = target;
+      try {
+        await saveCategories(next);
+        const n = await moveItems(cat, target);
+        keepCat = ""; render();
+        toast(existing ? `Merged “${cat}” into “${target}”${n ? ` · ${plural(n, "item", "items")} moved` : ""}` : `Renamed to “${v}”${n ? ` · ${plural(n, "item", "items")} updated` : ""}`);
+      } catch (ex) { toast(ex?.code === "permission-denied" ? "Only admins can change categories." : "Couldn't save. Try again."); }
+    });
+    p.querySelector("#cmDel").addEventListener("click", async e => {
+      const b = e.target;
+      if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = used ? `Tap again: delete and move ${plural(used, "item", "items")}` : "Tap again to delete"; return; }
+      const to = used ? p.querySelector("#cmTo").value : "";
+      closeSheet(1, true);
+      if (ui.cat === cat) ui.cat = to || "";
+      try {
+        let next = (lists.categories || []).filter(c => c !== cat);
+        if (to && !next.includes(to)) next = [...next, to];
+        keepCat = to;
+        await saveCategories(next);
+        const n = used ? await moveItems(cat, to) : 0;
+        keepCat = ""; render();
+        toast(`Deleted “${cat}”${n ? ` · ${plural(n, "item", "items")} moved to ${to}` : ""}`);
+      } catch (ex) { toast(ex?.code === "permission-denied" ? "Only admins can change categories." : "Couldn't save. Try again."); }
+    });
+  });
+}

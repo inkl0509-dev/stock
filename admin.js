@@ -174,6 +174,7 @@ $("#listsBox").addEventListener("click", e => {
   if (del) {
     const key = del.dataset.del, i = +del.dataset.i, arr = [...listData[key]], [v] = arr.splice(i, 1);
     const def = LIST_DEFS.find(d => d.key === key), n = usage(def, v);
+    if (key === "categories" && n) return deleteCategoryInUse(v, arr, n);
     saveList(key, arr, n ? `Removed ${v}. The ${n} item${n>1?"s":""} using it keep it.` : `Removed ${v}`);
   } else if (up) {
     const key = up.dataset.up, i = +up.dataset.i, arr = [...listData[key]];
@@ -446,3 +447,27 @@ $("#iuList").addEventListener("click", async e => {
     document.activeElement?.blur?.(); renderUnits();
   } catch (ex) { b.disabled = false; b.textContent = "Save"; toast(ex.code === "permission-denied" ? "Only admins can change units. Publish the new firestore.rules in Firebase." : "Couldn't save. Try again."); }
 });
+
+
+/* deleting a category that items use: choose where those items go, so the category is really gone */
+function deleteCategoryInUse(cat, rest, n){
+  const others = [...new Set([...rest, ...allItems.map(i => i.category).filter(c => c && c !== cat)])];
+  if (!others.length) others.push("Other");
+  openSheet(`<h3>Delete “${esc(cat)}”?</h3>
+    <p>${n} item${n > 1 ? "s use" : " uses"} this category. Move ${n > 1 ? "them" : "it"} to:</p>
+    <div class="field"><label for="dcTo">New category</label>
+      <select id="dcTo">${others.map(c => `<option ${c === "Other" ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></div>
+    <div class="err" id="dcErr" role="alert"></div>
+    <div class="actions"><button class="btn" type="button" data-close>Keep it</button><button class="btn danger solid" type="button" id="dcGo">Delete and move</button></div>`,
+  p => p.querySelector("#dcGo").addEventListener("click", async () => {
+    const to = p.querySelector("#dcTo").value, b = p.querySelector("#dcGo");
+    b.disabled = true; b.textContent = "Moving…";
+    try {
+      const snap = await getDocs(query(collection(db, "items"), where("category", "==", cat)));
+      for (const d of snap.docs) await updateDoc(d.ref, { category: to, updatedAt: Date.now() });
+      const next = rest.includes(to) ? rest : [...rest, to];
+      closeSheet();
+      saveList("categories", next, `Deleted ${cat} · ${snap.docs.length} item${snap.docs.length === 1 ? "" : "s"} moved to ${to}`);
+    } catch (_) { b.disabled = false; b.textContent = "Delete and move"; p.querySelector("#dcErr").textContent = "Couldn't move the items. Try again."; }
+  }));
+}
