@@ -100,7 +100,7 @@
     <div class="toolbar">
       <div class="search">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input id="q" type="search" placeholder="Search name or barcode" aria-label="Search items by name or barcode" enterkeyhint="search">
+        <input id="q" type="search" placeholder="Search name, barcode or QR" aria-label="Search items by name, barcode or QR code" enterkeyhint="search">
         <button type="button" class="in-search-clear" id="qClear" aria-label="Clear search" hidden>✕</button>
         <button type="button" class="in-search-scan" id="mainScan" aria-label="Scan barcode"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3M7 8v8M10 8v8M13 8v8M17 8v8"/></svg></button>
       </div>
@@ -170,7 +170,7 @@
   <div class="scan-scrim" id="scanScrim"></div>
   <div class="scan-card">
     <div class="scan-top">
-      <div><h3 id="scanTitle">Scan barcode</h3><span id="scanCount" class="scan-count" data-n="0"></span></div>
+      <div><h3 id="scanTitle">Scan barcode or QR</h3><span id="scanCount" class="scan-count" data-n="0"></span></div>
       <button class="btn primary sm" type="button" id="scanClose">Done</button>
     </div>
     <div id="scanLevel" class="seg two scan-level" role="radiogroup" aria-label="This barcode is on a" hidden></div>
@@ -189,7 +189,7 @@
     <div id="scanFileRegion" hidden></div>
     <p class="scan-msg" id="scanMsg" aria-live="polite">Starting camera…</p>
     <form id="scanManual" class="join scan-manual" novalidate>
-      <input id="scanCode" placeholder="Or type the barcode" autocomplete="off" inputmode="text" aria-label="Type a barcode" enterkeyhint="done">
+      <input id="scanCode" placeholder="Or type the code" autocomplete="off" inputmode="text" aria-label="Type a barcode" enterkeyhint="done">
       <button class="btn" type="submit">Add</button>
     </form>
   </div>

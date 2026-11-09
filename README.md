@@ -33,7 +33,7 @@ installs like an app, and keeps working offline.
   scan or search items, enter cartons / packets / pieces for each, then save everything at once.
   Stock out has three types: **Use** (consumed), **Issue** (to an outlet/event), **Breakage** (with reason).
   Supplier / outlet / reason picked from the Admin lists. **Undo** after saving.
-- **Barcode scanning**
+- **Barcode & QR code scanning** (QR codes, including web links, work everywhere a barcode does)
   - **Phone camera:** tap *Scan*, keep scanning items one after another (beep + vibrate on each).
     Works in Chrome, Edge and Safari (iPhone) over HTTPS — Vercel gives you HTTPS automatically.
   - **Handheld USB / Bluetooth scanners** work too — just scan; no need to tap anything.

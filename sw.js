@@ -6,7 +6,7 @@
 //  - A new version of this file takes over by itself and the open app reloads once.
 //
 // Changing VERSION is no longer required for updates, but it clears old saved copies.
-const VERSION = "2026-11-09-5";
+const VERSION = "2026-11-09-6";
 const CACHE = "crockery-stock-" + VERSION;
 const SHELL = [
   "/", "/index.html", "/admin.html",
