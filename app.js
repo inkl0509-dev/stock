@@ -45,8 +45,8 @@ let items = [], moves = [], loaded = false;
    Stock arrives in Main stock and is sent (transferred) to the units. ---------- */
 const DEFAULT_SITES = [{ id: "main", name: "Main stock" }, { id: "u1", name: "Unit 1" }, { id: "u2", name: "Unit 2" }, { id: "u3", name: "Unit 3" }];
 let allItems = [], allMoves = [], access = null, accessLoaded = false;
-let site = (() => { try { const v = localStorage.getItem("cs-site"); return DEFAULT_SITES.some(d => d.id === v) ? v : "main"; } catch (_) { return "main"; } })();
-const siteOf = x => x?.site || "main";           // items and entries made before units existed belong to Main stock
+let site = (() => { try { const v = localStorage.getItem("cs-site"); return DEFAULT_SITES.some(d => d.id === v) ? v : "u1"; } catch (_) { return "u1"; } })();
+const siteOf = x => x?.site || "u1";             // stock entered before units existed belongs to Unit 1
 function sitesList(){
   const s = Array.isArray(access?.sites) ? access.sites : [];
   return DEFAULT_SITES.map(d => ({ id: d.id, name: String(s.find(x => x.id === d.id)?.name || d.name) }));
@@ -58,7 +58,7 @@ function canEdit(s = site){
   const e = String(auth.currentUser?.email || "").toLowerCase();
   if (access.siteAdmins?.[s]?.includes(e)) return true;
   if (access.managers) return !!access.managers[s]?.includes(e);
-  return s === "main" && !!access.staff?.includes(e);       // before units were set up, staff worked in the main stock
+  return s === "u1" && !!access.staff?.includes(e);         // before units were set up, staff worked in Unit 1
 }
 /* admin of one unit: may also change item packing units, and fix anyone's entries there */
 function isSiteAdmin(s = site){
@@ -376,7 +376,7 @@ function writeErr(e){
   toast(e?.code === "permission-denied" ? "You don't have permission to change stock." : "Couldn't save. Try again.");
   throw e;
 }
-const putItem    = it => { const { id, ...body } = it; if (!body.site) body.site = "main"; return chain("i/"+id, () => setDoc(doc(db,"items",id), body)).catch(writeErr); };
+const putItem    = it => { const { id, ...body } = it; if (!body.site) body.site = "u1"; return chain("i/"+id, () => setDoc(doc(db,"items",id), body)).catch(writeErr); };
 const removeItem = id => chain("i/"+id, () => deleteDoc(doc(db,"items",id))).catch(writeErr);
 const addMove    = m  => { const { id, ...body } = m; if (!body.site) body.site = siteOf(allItems.find(i => i.id === m.itemId)); return setDoc(doc(db,"moves",id), body).catch(writeErr); };
 

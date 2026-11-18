@@ -23,7 +23,7 @@ onAuthStateChanged(auth, user => {
 let isAdmin = false, access = null;
 /* main stock + three units. Names can be changed below; ids never change. */
 const DEFAULT_SITES = [{ id: "main", name: "Main stock" }, { id: "u1", name: "Unit 1" }, { id: "u2", name: "Unit 2" }, { id: "u3", name: "Unit 3" }];
-const siteOfIt = it => it.site || "main";
+const siteOfIt = it => it.site || "u1";       // stock entered before units existed belongs to Unit 1
 const sitesList = () => DEFAULT_SITES.map(d => ({ id: d.id, name: String((access?.sites || []).find(x => x.id === d.id)?.name || d.name) }));
 const siteName = id => sitesList().find(s => s.id === id)?.name || id;
 const accessRef = () => doc(db, "settings", "access");
@@ -40,11 +40,11 @@ function watchAccess(){
   onSnapshot(accessRef(), async snap => {
     access = snap.exists() ? { admins: [], staff: [], people: {}, ...snap.data() } : null;
     // switching on units for the first time: people who were staff keep working in Unit 1
-    // switching on Main stock + units: people who were staff keep working in Main stock
+    // switching on Main stock + units: people who were staff keep working in Unit 1 (where the old stock is)
     const amAdm = isAdminEmail(me()) || access?.admins?.includes(me());
     if (access && amAdm && (!access.managers || !access.managers.main || !access.siteAdmins || !Array.isArray(access.sites) || !access.sites.some(x => x.id === "main"))) {
       const m = access.managers || {}, sa = access.siteAdmins || {};
-      const managers = { main: m.main || [...access.staff], u1: m.u1 || [], u2: m.u2 || [], u3: m.u3 || [] };
+      const managers = { main: m.main || [], u1: m.u1 || [...access.staff], u2: m.u2 || [], u3: m.u3 || [] };
       const siteAdmins = { main: sa.main || [], u1: sa.u1 || [], u2: sa.u2 || [], u3: sa.u3 || [] };
       const sites = DEFAULT_SITES.map(d => (Array.isArray(access.sites) && access.sites.find(x => x.id === d.id)) || d);
       try { await setDoc(accessRef(), { managers, siteAdmins, sites }, { merge: true }); return; } catch (_) {}
@@ -579,11 +579,11 @@ function renderSites(){
       <small class="hint">${count(s.id)} items · ${who(s.id)} ${who(s.id) === 1 ? "person" : "people"} can change${admins(s.id).length ? ` · admin: ${esc(admins(s.id).join(", "))}` : ""}</small></label>`).join("")}
       <button class="btn" type="submit">Save names</button></form>
     <details class="move-items"><summary>Move all items from one to another</summary>
-      <p class="hint">E.g. if your old stock should be in Main stock instead of Unit 1. Items keep their stock and history.</p>
+      <p class="hint">E.g. if some items ended up in the wrong place. Items keep their stock and history.</p>
       <div class="move-row">
-        <select id="mvFrom" aria-label="From">${sitesList().map(s => `<option value="${s.id}" ${s.id === "u1" ? "selected" : ""}>${esc(s.name)} (${count(s.id)})</option>`).join("")}</select>
+        <select id="mvFrom" aria-label="From">${sitesList().map(s => `<option value="${s.id}" ${s.id === "main" ? "selected" : ""}>${esc(s.name)} (${count(s.id)})</option>`).join("")}</select>
         <span>→</span>
-        <select id="mvTo" aria-label="To">${sitesList().map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select>
+        <select id="mvTo" aria-label="To">${sitesList().map(s => `<option value="${s.id}" ${s.id === "u1" ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select>
         <button class="btn" type="button" id="mvGo">Move items</button>
       </div></details>`;
 }

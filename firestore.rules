@@ -25,7 +25,7 @@ service cloud.firestore {
     // OWNER and full admins: everything.  Per unit (set on Admin → Users → Manage):
     //   settings/access.siteAdmins = { main: [emails], u1: [...], ... }  unit admin: stock + packing units + fixes
     //   settings/access.managers   = { main: [emails], u1: [...], ... }  member: stock in / out, items
-    function siteOf(d) { return d.get("site", "main"); }     // old items without a unit belong to Main stock
+    function siteOf(d) { return d.get("site", "u1"); }       // stock entered before units existed belongs to Unit 1
     function validSite(s) { return s in ["main", "u1", "u2", "u3"]; }
     function inRole(key, s) {
       return request.auth != null && exists(accessPath()) && key in get(accessPath()).data
@@ -36,7 +36,7 @@ service cloud.firestore {
       return siteAdmin(s)
         || (request.auth != null && !exists(accessPath()))
         || inRole("managers", s)
-        || (exists(accessPath()) && !("managers" in get(accessPath()).data) && s == "main" && listed("staff"));
+        || (exists(accessPath()) && !("managers" in get(accessPath()).data) && s == "u1" && listed("staff"));
     }
 
     // ── STOCK ───────────────────────────────────────────────────────────

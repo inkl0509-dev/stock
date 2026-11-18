@@ -85,8 +85,8 @@ list, stock and history**. Tap one at the top of the screen to switch.
   - **Member** of that unit: stock in / out, send, add items.
   - **View only**: can look but not change.
 - Everyone on the user list can **see** the main stock and all units.
-- Old stock (entered before units existed) is in **Main stock**. If it ended up in Unit 1, use
-  Admin → Users → *Main stock & units* → **Move all items from one to another**.
+- Stock entered before units existed is in **Unit 1**. Main stock starts empty. If some items are in the wrong
+  place, use Admin → Users → *Main stock & units* → **Move all items from one to another**.
 
 > **Important:** publish the new `firestore.rules` in Firebase (Firestore Database → Rules → paste → Publish),
 > then open the Admin page once with the owner account.
