@@ -881,7 +881,7 @@ li.is-fix .what{color:var(--accent)}
 
 /* ---------- units (stores) ---------- */
 .sitebar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:4px 0 12px}
-.sitebar .site[data-site="main"]{grid-column:1 / -1;flex-direction:row;align-items:baseline;justify-content:space-between;gap:10px}
+.sitebar[data-n="4"] .site[data-site="main"]{grid-column:1 / -1;flex-direction:row;align-items:baseline;justify-content:space-between;gap:10px}
 .sitebar .site[data-site="main"] b{font-size:1rem}
 .sitebar .site-rename{grid-column:1 / -1;justify-self:end;font-size:.82rem;margin-top:-2px}
 .sitebar .site{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:9px 11px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;text-align:left;cursor:pointer;min-width:0}
@@ -927,3 +927,8 @@ body.readonly .htile.t-send{display:none!important}
 .sr-name{font-weight:600;font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sr-seg label{font-size:.8rem;padding:8px 4px}
 @media (max-width:420px){.sr-row{grid-template-columns:1fr}}
+
+.sitebar[data-n="1"]{grid-template-columns:1fr}
+.sitebar[data-n="2"]{grid-template-columns:1fr 1fr}
+.sitebar:not([data-n="4"]) .site[data-site="main"]{flex-direction:column}
+.sitebar[data-n="0"]{display:none}

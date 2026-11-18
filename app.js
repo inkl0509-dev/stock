@@ -1,6 +1,6 @@
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy, limit, getDocsFromServer, arrayUnion
+  collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy, limit, getDocsFromServer, arrayUnion, where
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   onAuthStateChanged, signInWithEmailAndPassword, signOut,
@@ -60,6 +60,14 @@ function canEdit(s = site){
   if (access.managers) return !!access.managers[s]?.includes(e);
   return s === "u1" && !!access.staff?.includes(e);         // before units were set up, staff worked in Unit 1
 }
+/* can the signed-in person SEE this unit? Admins: all. Others: units with View, Member or Admin access.
+   (Until the owner opens the Admin page after this update, everyone on the list sees all units.) */
+function canSee(s){
+  if (amAdmin || !accessLoaded || !access || !access.viewers) return true;
+  const e = String(auth.currentUser?.email || "").toLowerCase();
+  return ["siteAdmins", "managers", "viewers"].some(k => access[k]?.[s]?.includes(e));
+}
+const visibleSites = () => sitesList().filter(x => canSee(x.id));
 /* admin of one unit: may also change item packing units, and fix anyone's entries there */
 function isSiteAdmin(s = site){
   if (amAdmin) return true;
@@ -71,6 +79,8 @@ function guardEdit(s = site){
   return false;
 }
 function refilter(){
+  const vis = visibleSites();
+  if (vis.length && !vis.some(x => x.id === site)) site = vis[0].id;     // the saved unit isn't visible to this person
   items = allItems.filter(i => siteOf(i) === site);
   // an entry belongs to the unit its item is in now (so moving an item to another unit takes its history along)
   const where = new Map(allItems.map(i => [i.id, siteOf(i)]));
@@ -87,7 +97,10 @@ function switchSite(id){
 }
 function renderSiteBar(){
   const el = $("#siteBar"); if (!el) return;
-  el.innerHTML = sitesList().map(s => {
+  const vis = visibleSites();
+  el.classList.toggle("no-main", !vis.some(x => x.id === "main"));
+  el.dataset.n = vis.length;
+  el.innerHTML = vis.map(s => {
     const its = allItems.filter(i => siteOf(i) === s.id), low = its.filter(it => status(it) !== "ok").length, ro = !canEdit(s.id);
     return `<button type="button" class="site ${s.id === site ? "on" : ""} ${ro ? "ro" : ""}" data-site="${s.id}" aria-pressed="${s.id === site}">
       <b>${esc(s.name)}${ro ? ` <span class="lock" title="View only" aria-label="View only">👁</span>` : ""}</b>
@@ -230,8 +243,8 @@ onAuthStateChanged(auth, user => {
     $("#loginView").hidden = true; $("#appView").hidden = false;
     $("#who").textContent = user.displayName || user.email || "";
     startData();
-    showAdminLink();
   } else {
+    dataUnsubs.forEach(u => u()); dataUnsubs = []; dataKey = null;
     amAdmin = false;
     items = []; moves = []; allItems = []; allMoves = []; access = null; accessLoaded = false; loaded = false;
     $("#appView").hidden = true; $("#loginView").hidden = false;
@@ -288,13 +301,15 @@ function setAdmin(v){
   refilter(); render();
 }
 /* Admin = owner email (admins.js) or listed as admin on Admin → Users (settings/access) */
-function showAdminLink(){
+function watchAccess(){
   const email = String(auth.currentUser?.email || "").toLowerCase();
   setAdmin(isAdminEmail(email));
+  if (isAdminEmail(email)) subscribeData();        // the owner sees everything straight away
   unsubs.push(onSnapshot(doc(db, "settings", "access"), snap => {
     access = snap.exists() ? snap.data() : null; accessLoaded = true;
     setAdmin(isAdminEmail(email) || !!access?.admins?.includes(email));
-  }, () => { accessLoaded = true; access = { managers: {} }; setAdmin(isAdminEmail(email)); }));
+    subscribeData();
+  }, () => { accessLoaded = true; access = null; setAdmin(isAdminEmail(email)); subscribeData(); }));
 }
 /* signed in, but not on the user list */
 function showNoAccess(){
@@ -331,6 +346,7 @@ $("#reloadBtn").addEventListener("click", async () => {
   b.classList.add("spin"); b.disabled = true;
   Object.keys(pending).forEach(commitNudge);
   unsubs.forEach(u => u()); unsubs = [];
+  dataUnsubs.forEach(u => u()); dataUnsubs = []; dataKey = null;
   startData();
   let online = true;
   try { await getDocsFromServer(collection(db, "items")); } catch (_) { online = false; }
@@ -348,27 +364,61 @@ window.addEventListener("offline", () => setSync("Offline · changes will sync",
 function startData(){
   loaded = false; render();
   setSync("Loading your stock…");
-  unsubs.push(onSnapshot(collection(db, "items"), { includeMetadataChanges: true }, snap => {
-    allItems = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    refilter();
-    loaded = true;
-    setSync(snap.metadata.fromCache ? "Offline · changes will sync" : "Saved · syncs across devices",
-            snap.metadata.fromCache ? "warn" : "ok");
-    render();
-  }, e => { loaded = true; if (e.code === "permission-denied") return showNoAccess(); setSync("Can't load stock: " + e.code, "bad"); render(); }));
-
   unsubs.push(onSnapshot(doc(db, "settings", "lists"), snap => {
     const d = snap.data() || {};
     lists = {};
     for (const k of Object.keys(DEFAULT_LISTS)) lists[k] = Array.isArray(d[k]) ? d[k] : DEFAULT_LISTS[k];
     render();
   }, () => {}));
+  watchAccess();
+}
 
-  unsubs.push(onSnapshot(query(collection(db, "moves"), orderBy("at","desc"), limit(600)), snap => {
-    allMoves = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    refilter();
-    render();
-  }, () => {}));
+/* items + history. Admins (and everyone before units are set up) load everything; other people load only
+   the units they may see (the Firestore rules don't let them read the others). */
+let dataUnsubs = [], dataKey = null;
+function subscribeData(){
+  const all = amAdmin || !access || !access.viewers;
+  const vis = all ? [] : visibleSites().map(x => x.id);
+  const key = all ? "*" : vis.join(",");
+  if (key === dataKey) return;
+  dataUnsubs.forEach(u => u()); dataUnsubs = []; dataKey = key;
+  const itemsBy = {}, movesBy = {};
+  const merge = () => {
+    allItems = Object.values(itemsBy).flat();
+    allMoves = Object.values(movesBy).flat().sort((a, b) => (b.at || 0) - (a.at || 0));
+    refilter(); render();
+  };
+  const onItems = k => snap => {
+    itemsBy[k] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    loaded = true;
+    setSync(snap.metadata.fromCache ? "Offline · changes will sync" : "Saved · syncs across devices", snap.metadata.fromCache ? "warn" : "ok");
+    merge();
+  };
+  const onErr = e => { loaded = true; if (e.code === "permission-denied") return showNoAccess(); setSync("Can't load stock: " + e.code, "bad"); render(); };
+  const onMoves = k => snap => { movesBy[k] = snap.docs.map(d => ({ id: d.id, ...d.data() })); merge(); };
+  if (all) {
+    dataUnsubs.push(onSnapshot(collection(db, "items"), { includeMetadataChanges: true }, onItems("*"), onErr));
+    dataUnsubs.push(onSnapshot(query(collection(db, "moves"), orderBy("at","desc"), limit(800)), onMoves("*"), () => {}));
+    return;
+  }
+  if (!vis.length) { loaded = true; allItems = []; allMoves = []; refilter(); render(); return showNoUnit(); }
+  for (const s of vis) {
+    dataUnsubs.push(onSnapshot(query(collection(db, "items"), where("site", "==", s)), { includeMetadataChanges: true }, onItems(s), onErr));
+    // newest 300 entries per unit. Needs a Firestore index (site + at); without it, load the unit's entries unsorted.
+    let un = onSnapshot(query(collection(db, "moves"), where("site", "==", s), orderBy("at", "desc"), limit(300)), onMoves(s), e => {
+      if (e.code !== "failed-precondition") return;
+      console.warn("Create the index from this link for faster history:", e.message);
+      un = onSnapshot(query(collection(db, "moves"), where("site", "==", s)), snap => {
+        movesBy[s] = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 300); merge();
+      }, () => {});
+      dataUnsubs.push(() => un());
+    });
+    dataUnsubs.push(() => un());
+  }
+}
+function showNoUnit(){
+  $("#list").innerHTML = `<div class="empty"><h3>No unit yet</h3><p>${esc(auth.currentUser?.email)} hasn't been given any unit. Ask your admin to set your access on Admin → Users, then tap Reload.</p></div>`;
+  setSync("No unit access", "bad");
 }
 
 function chain(key, fn){ const p = (chains[key]||Promise.resolve()).catch(()=>{}).then(fn); chains[key] = p; return p; }
@@ -459,6 +509,7 @@ function sorted(){
 
 function renderList(){
   const el = $("#list");
+  if (loaded && accessLoaded && !visibleSites().length) { el.innerHTML = `<div class="empty"><h3>No unit yet</h3><p>${esc(auth.currentUser?.email)} hasn't been given any unit. Ask your admin to set your access on Admin → Users, then tap Reload.</p></div>`; return; }
   if (!loaded) { el.innerHTML = `<div class="empty"><h3>Opening the stockroom…</h3><p>Your items will appear here.</p></div>`; return; }
   if (!items.length) {
     el.innerHTML = `<div class="empty"><h3>Let's add your first item</h3><p>Tap one to start, scan a barcode, or add your own.</p>
@@ -2521,7 +2572,7 @@ async function doTransfer(it, n, to, note, batch){
   await applyMove(d.id, "received", n, note, { party: siteName(from), batch, extra: { xfer: from } });
   return r;
 }
-function sendTargets(){ return sitesList().filter(x => x.id !== site && canEdit(x.id)); }
+function sendTargets(){ return sitesList().filter(x => x.id !== site && canSee(x.id) && canEdit(x.id)); }
 function transferSheet(it){
   const from = siteOf(it);
   if (!guardEdit(from)) return;

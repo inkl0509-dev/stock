@@ -21,10 +21,12 @@ service cloud.firestore {
 
     // ── MAIN STOCK + UNITS ──────────────────────────────────────────────
     // "main" = main stock (central store), u1 / u2 / u3 = the three units. Each has its own items.
-    // Everyone on the list can SEE all of them.
-    // OWNER and full admins: everything.  Per unit (set on Admin → Users → Manage):
+    // OWNER and full admins: see and change everything.  Per unit (set on Admin → Users → Manage):
     //   settings/access.siteAdmins = { main: [emails], u1: [...], ... }  unit admin: stock + packing units + fixes
     //   settings/access.managers   = { main: [emails], u1: [...], ... }  member: stock in / out, items
+    //   settings/access.viewers    = { main: [emails], u1: [...], ... }  view only
+    //   not in any of them = can't see that unit at all.
+    // (Before "viewers" exists, everyone on the list sees every unit.)
     function siteOf(d) { return d.get("site", "u1"); }       // stock entered before units existed belongs to Unit 1
     function validSite(s) { return s in ["main", "u1", "u2", "u3"]; }
     function inRole(key, s) {
@@ -38,6 +40,11 @@ service cloud.firestore {
         || inRole("managers", s)
         || (exists(accessPath()) && !("managers" in get(accessPath()).data) && s == "u1" && listed("staff"));
     }
+
+    function seesAll() {
+      return isAdmin() || (isMember() && (!exists(accessPath()) || !("viewers" in get(accessPath()).data)));
+    }
+    function sees(s) { return seesAll() || (isMember() && (manages(s) || inRole("viewers", s))); }
 
     // ── STOCK ───────────────────────────────────────────────────────────
     function validItem() {
@@ -55,7 +62,7 @@ service cloud.firestore {
     }
 
     match /items/{itemId} {
-      allow read: if isMember();
+      allow read: if seesAll() || sees(resource.data.site);
       allow create: if isMember() && validItem()
         && validSite(siteOf(request.resource.data)) && manages(siteOf(request.resource.data));
       allow update: if isMember() && validItem() && manages(siteOf(resource.data))
@@ -66,9 +73,12 @@ service cloud.firestore {
     }
 
     match /moves/{moveId} {
-      allow read: if isMember();
+      allow read: if seesAll() || sees(resource.data.site);
       allow create: if isMember() && manages(siteOf(request.resource.data));
-      allow update, delete: if false;   // activity log can't be edited
+      // the activity log can't be edited; admins may only add the missing unit to old entries (one-time setup)
+      allow update: if isAdmin() && !("site" in resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["site"]);
+      allow delete: if false;
     }
 
     // ── SETTINGS ────────────────────────────────────────────────────────

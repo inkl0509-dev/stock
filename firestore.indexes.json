@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "moves",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "site", "order": "ASCENDING" },
+        { "fieldPath": "at", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

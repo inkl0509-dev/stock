@@ -78,15 +78,22 @@ list, stock and history**. Tap one at the top of the screen to switch.
 - **Rename:** tap **✎ Rename** under the unit buttons (owner/full admins), or Admin → Users → *Main stock & units*.
 
 ### Who can do what
-- **Owner** (the email in `admins.js` and `firestore.rules`): all access, always.
-- **Full admin**: all access, like the owner (every unit, users, lists).
-- **Per unit** – for Main stock and each unit separately, choose on Admin → Users → **Manage**:
-  - **Admin** of that unit: stock in / out, send, items, packing units (1 carton = 24 …), delete / merge, fix anyone's entries there.
-  - **Member** of that unit: stock in / out, send, add items.
-  - **View only**: can look but not change.
-- Everyone on the user list can **see** the main stock and all units.
+- **Owner** (the email in `admins.js` and `firestore.rules`): sees and changes everything, always.
+- **Full admin**: the same as the owner (every unit, users, lists).
+- **Per unit** – for Main stock and each unit separately (Admin → Users → **Manage**, or "Set all to"):
+  - **Admin**: stock in / out, send, items, packing units (1 carton = 24 …), delete / merge, fix anyone's entries.
+  - **Member**: stock in / out, send, add items.
+  - **View**: can look, can't change.
+  - **No access**: the unit is hidden from them. The Firestore rules block it too, so it never reaches their phone.
 - Stock entered before units existed is in **Unit 1**. Main stock starts empty. If some items are in the wrong
   place, use Admin → Users → *Main stock & units* → **Move all items from one to another**.
+- The first time the owner opens the Admin page after this update, the app gives every old item and history entry
+  to Unit 1 (keep the page open for a moment). Everyone keeps seeing all units until you change their access.
+
+**Faster history for people with limited access (optional):** Firebase may ask for an index. Either open the link
+it shows in the browser console, or create it by hand: Firestore Database → Indexes → Composite → Add index →
+collection `moves`, fields `site` Ascending + `at` Descending. (`firestore.indexes.json` has the same.) The app works
+without it, just loads more history.
 
 > **Important:** publish the new `firestore.rules` in Firebase (Firestore Database → Rules → paste → Publish),
 > then open the Admin page once with the owner account.
