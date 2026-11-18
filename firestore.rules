@@ -19,6 +19,20 @@ service cloud.firestore {
       return isAdmin() || listed("staff") || (request.auth != null && !exists(accessPath()));
     }
 
+    // ── UNITS ───────────────────────────────────────────────────────────
+    // Three units (u1, u2, u3), each with its own items. Everyone on the list can SEE all units.
+    // Admins can CHANGE every unit; other people only the units ticked for them on Admin → Users
+    // (settings/access.managers = { u1: [emails], u2: [...], u3: [...] }).
+    function siteOf(d) { return d.get("site", "u1"); }       // old items without a unit belong to Unit 1
+    function validSite(s) { return s in ["u1", "u2", "u3"]; }
+    function manages(s) {
+      return isAdmin()
+        || (request.auth != null && !exists(accessPath()))
+        || (exists(accessPath()) && "managers" in get(accessPath()).data
+            && request.auth.token.email in get(accessPath()).data.managers.get(s, []))
+        || (exists(accessPath()) && !("managers" in get(accessPath()).data) && s == "u1" && listed("staff"));
+    }
+
     // ── STOCK ───────────────────────────────────────────────────────────
     function validItem() {
       return request.resource.data.name is string
@@ -36,19 +50,23 @@ service cloud.firestore {
 
     match /items/{itemId} {
       allow read: if isMember();
-      allow create: if isMember() && validItem();
-      allow update: if isMember() && validItem() && (isAdmin() || unitsUnchanged());
-      allow delete: if isMember();
+      allow create: if isMember() && validItem()
+        && validSite(siteOf(request.resource.data)) && manages(siteOf(request.resource.data));
+      allow update: if isMember() && validItem() && manages(siteOf(resource.data))
+        && siteOf(request.resource.data) == siteOf(resource.data)
+        && (isAdmin() || unitsUnchanged());
+      allow delete: if isMember() && manages(siteOf(resource.data));
     }
 
     match /moves/{moveId} {
-      allow read, create: if isMember();
+      allow read: if isMember();
+      allow create: if isMember() && manages(siteOf(request.resource.data));
       allow update, delete: if false;   // activity log can't be edited
     }
 
     // ── SETTINGS ────────────────────────────────────────────────────────
     // lists  = units, categories, places, suppliers, outlets, reasons
-    // access = who is admin / staff
+    // access = who is admin / member, which units each member may change, unit names
     match /settings/{docId} {
       allow read: if isMember();
       allow write: if isAdmin();

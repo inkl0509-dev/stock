@@ -64,6 +64,25 @@ installs like an app, and keeps working offline.
   - **Lists & settings:** edit the dropdowns staff use — *Counted in* units (pcs, sets, pairs, dozen…),
     categories, storage places, suppliers, outlets (issued to) and breakage reasons
 
+
+## Three units (stores / outlets)
+
+The app holds **three units** (e.g. Main Store, Cafe, Banquet). Each unit has its **own item list, stock and history**.
+Tap a unit at the top of the screen to switch.
+
+- **Everyone on the user list can see all three units.**
+- **Admins** (and the owner) can change every unit.
+- **Members** can change only the units an admin ticks for them: Admin → Users → **Manage** → *Can change stock in*.
+  In other units they see the stock but the Stock in / Stock out buttons are hidden (👁 = view only).
+- **Rename units:** Admin → Users → **Units** card → type the names → **Save names**.
+- **Transfer:** open an item → **⇄ Transfer to another unit**. Stock goes out of this unit and into the other one in one
+  step. If the other unit doesn't have the item yet, it's added there with the same name, units and barcodes.
+  (You need to be able to change both units.)
+- Stock entered before this update belongs to the first unit. People who were staff can still change the first unit.
+
+> **Important:** publish the new `firestore.rules` in Firebase (Firestore Database → Rules → paste → Publish).
+> The rules make sure members can only change their own units.
+
 ## Files
 
 | File | What it is |

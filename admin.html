@@ -70,12 +70,12 @@
 
   <div class="tabs admin-tabs" role="tablist">
     <button type="button" role="tab" aria-selected="true" data-atab="users">Users</button>
-    <button type="button" role="tab" aria-selected="false" data-atab="units">Item units</button>
+    <button type="button" role="tab" aria-selected="false" data-atab="units">Item packing</button>
     <button type="button" role="tab" aria-selected="false" data-atab="lists">Lists</button>
   </div>
 
   <section id="unitsPane" class="pane" hidden>
-    <p class="hint">Each item is counted in two units: its <b>main pack</b> (carton, box…) and its <b>single unit</b> (can, spoon…). Example: 1 Carton = 24 cans. Change a row and tap Save.</p>
+    <p class="hint">Items of all three units. Each item is counted in two units: its <b>main pack</b> (carton, box…) and its <b>single unit</b> (can, spoon…). Example: 1 Carton = 24 cans. Change a row and tap Save.</p>
     <div class="search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       <input id="iuQ" type="search" placeholder="Search items" aria-label="Search items" autocomplete="off"></div>
     <div id="iuList" class="iu-list"><div class="empty"><h3>Loading items…</h3></div></div>
@@ -88,13 +88,14 @@
 
   <section id="usersPane" class="pane">
   <div id="notice" class="notice" hidden></div>
+  <section id="sitesBox" class="lcard sites-card" hidden></section>
   <div class="toolbar">
     <div class="search">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
       <input id="uq" type="search" placeholder="Search by name or email" aria-label="Search users">
     </div>
   </div>
-  <p class="hint">Only people on this list can use the app. <b>Staff</b>: stock in / out and items. <b>Admin</b>: also users, units &amp; categories.</p>
+  <p class="hint">Only people on this list can use the app. Everyone can <b>see</b> all units. <b>Member</b>: changes stock only in the units ticked for them (tap Manage). <b>Admin</b>: changes all units, users and lists.</p>
   <ul class="ulist" id="ulist"><li style="display:block"><div class="empty"><h3>Loading users…</h3></div></li></ul>
   </section>
 </div>

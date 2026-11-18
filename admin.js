@@ -21,6 +21,10 @@ onAuthStateChanged(auth, user => {
 /* Who can use the app is kept in Firestore: settings/access = { admins: [emails], staff: [emails], people: { email: {name, addedAt, addedBy} } }
    The owner emails in admins.js are always admins. */
 let isAdmin = false, access = null;
+/* three units (stores). Names can be changed below; ids never change. */
+const DEFAULT_SITES = [{ id: "u1", name: "Unit 1" }, { id: "u2", name: "Unit 2" }, { id: "u3", name: "Unit 3" }];
+const sitesList = () => DEFAULT_SITES.map(d => ({ id: d.id, name: String((access?.sites || []).find(x => x.id === d.id)?.name || d.name) }));
+const siteName = id => sitesList().find(s => s.id === id)?.name || id;
 const accessRef = () => doc(db, "settings", "access");
 const lc = e => String(e || "").trim().toLowerCase();
 const me = () => lc(auth.currentUser?.email);
@@ -34,15 +38,20 @@ function start(){
 function watchAccess(){
   onSnapshot(accessRef(), async snap => {
     access = snap.exists() ? { admins: [], staff: [], people: {}, ...snap.data() } : null;
+    // switching on units for the first time: people who were staff keep working in Unit 1
+    if (access && !access.managers && (isAdminEmail(me()) || access.admins.includes(me()))) {
+      try { await setDoc(accessRef(), { managers: { u1: [...access.staff], u2: [], u3: [] }, sites: access.sites || DEFAULT_SITES }, { merge: true }); return; } catch (_) {}
+    }
     isAdmin = isAdminEmail(me()) || !!access?.admins?.includes(me());
     // first visit by the owner: start the list (owner only), so access control switches on
     let setupFailed = false;
     if (!access && isAdminEmail(me())) {
-      try { await setDoc(accessRef(), { admins: [], staff: [], people: {}, createdAt: Date.now(), createdBy: me() }); return; }
+      try { await setDoc(accessRef(), { admins: [], staff: [], people: {}, managers: { u1: [], u2: [], u3: [] }, sites: DEFAULT_SITES, createdAt: Date.now(), createdBy: me() }); return; }
       catch (_) { setupFailed = true; }   // keep going: show the page anyway
     }
     $("#addUser").disabled = !isAdmin || setupFailed;
-    renderUsers();
+    renderUsers(); renderSites();
+    if (!$("#unitsPane").hidden) renderUnits();
     if (setupFailed) notice(`<b>One step left.</b><span>Firebase blocked saving the user list. Copy everything from <code>firestore.rules</code>, paste it in Firebase console → Firestore Database → <b>Rules</b>, tap <b>Publish</b>, then reload this page.</span>`);
     if (listData) renderLists();
   }, e => {
@@ -82,7 +91,7 @@ const LIST_DEFS = [
 ];
 let listData = null, saving = Promise.resolve(), allItems = [], editing = null;
 function watchItems(){
-  onSnapshot(collection(db, "items"), snap => { allItems = snap.docs.map(d => ({ id: d.id, ...d.data() })); if (listData) renderLists(); if (!$("#unitsPane").hidden) renderUnits(); }, () => {});
+  onSnapshot(collection(db, "items"), snap => { allItems = snap.docs.map(d => ({ id: d.id, ...d.data() })); if (listData) renderLists(); renderSites(); if (!$("#unitsPane").hidden) renderUnits(); }, () => {});
 }
 const usage = (def, v) => def.field ? allItems.filter(it => (it[def.field] || (def.field === "unit" ? "pcs" : "")) === v).length : 0;
 const listsRef = () => doc(db, "settings", "lists");
@@ -221,14 +230,22 @@ function userList(){
   ADMIN_EMAILS.map(lc).forEach(e => out.set(e, { email: e, role: "owner" }));
   (access?.admins || []).forEach(e => { if (!out.has(e)) out.set(e, { email: e, role: "admin" }); });
   (access?.staff || []).forEach(e => { if (!out.has(e)) out.set(e, { email: e, role: "staff" }); });
-  for (const u of out.values()) Object.assign(u, access?.people?.[u.email] || {});
+  for (const u of out.values()) {
+    Object.assign(u, access?.people?.[u.email] || {});
+    u.sites = DEFAULT_SITES.map(d => d.id).filter(id => (access?.managers?.[id] || []).includes(u.email));
+  }
   return [...out.values()].sort((a, b) => (a.role === "owner" ? -1 : 0) - (b.role === "owner" ? -1 : 0) || a.email.localeCompare(b.email));
 }
-const roleName = r => r === "owner" ? "Owner" : r === "admin" ? "Admin" : "Staff";
+const roleName = r => r === "owner" ? "Owner" : r === "admin" ? "Admin" : "Member";
+const canText = u => u.role !== "staff" ? "Changes all units" : u.sites.length ? "Changes " + u.sites.map(siteName).join(", ") : "View only";
+/* tick boxes: which units a member may change */
+const siteChecks = (sel = [], disabled = false) => `<fieldset class="qbox-wrap site-checks"><legend>Can change stock in</legend>
+  <p class="hint">Members can see all units. Tick the units they may change (stock in / out, items). Admins change all units.</p>
+  <div class="check-row">${sitesList().map(s => `<label class="check-chip"><input type="checkbox" name="site" value="${s.id}" ${sel.includes(s.id) ? "checked" : ""} ${disabled ? "disabled" : ""}><span>${esc(s.name)}</span></label>`).join("")}</div></fieldset>`;
 
 function renderUsers(){
   if (!isAdmin) {
-    notice(`<b>Admins only.</b><span>${esc(me())} is a staff account. Ask an admin to make you an admin.</span>`);
+    notice(`<b>Admins only.</b><span>${esc(me())} is a member account. Ask an admin to make you an admin.</span>`);
     $("#ulist").innerHTML = ""; return;
   }
   notice("");
@@ -241,6 +258,7 @@ function renderUsers(){
         <div class="uname">${esc(u.name || u.email)}${u.email === me() ? ` <span class="hint">(you)</span>` : ""}</div>
         <div class="umeta">
           <span class="pill ${u.role === "staff" ? "staff" : "admin"}">${roleName(u.role)}</span>
+          <span class="can ${u.role === "staff" && !u.sites.length ? "ro" : ""}">${esc(canText(u))}</span>
           ${u.name ? `<span>${esc(u.email)}</span>` : ""}
           ${u.addedAt ? `<span>· added ${fmtDate(u.addedAt)}</span>` : ""}
         </div>
@@ -252,8 +270,10 @@ function renderUsers(){
 /* save the access list (whole document, so emails with dots are safe) */
 async function saveAccess(change, okMsg){
   const cur = access || { admins: [], staff: [], people: {} };
-  const next = change({ admins: [...(cur.admins||[])], staff: [...(cur.staff||[])], people: { ...(cur.people||{}) } });
+  const mg = {}; for (const d of DEFAULT_SITES) mg[d.id] = [...(cur.managers?.[d.id] || [])];
+  const next = change({ admins: [...(cur.admins||[])], staff: [...(cur.staff||[])], people: { ...(cur.people||{}) }, managers: mg, sites: sitesList() });
   next.admins = [...new Set(next.admins.map(lc))]; next.staff = [...new Set(next.staff.map(lc))].filter(e => !next.admins.includes(e));
+  for (const d of DEFAULT_SITES) next.managers[d.id] = [...new Set((next.managers[d.id] || []).map(lc))].filter(e => next.staff.includes(e));
   try { await setDoc(accessRef(), { ...next, updatedAt: Date.now(), updatedBy: me() }); okMsg && toast(okMsg); return true; }
   catch (e) { toast(e.code === "permission-denied" ? "Only admins can change users. Publish the new firestore.rules in Firebase if you haven't yet." : "Couldn't save. Check your connection."); return false; }
 }
@@ -302,16 +322,18 @@ $("#addUser").addEventListener("click", () => {
       <label class="remember" for="aHas"><input type="checkbox" id="aHas"> They already have a login (keep their password)</label>
       <fieldset class="qbox-wrap"><legend>Access</legend>
         <div class="radio-cards">
-          <label><input type="radio" name="role" value="staff" checked><span><b>Staff</b><small>Stock in / out, items</small></span></label>
-          <label><input type="radio" name="role" value="admin"><span><b>Admin</b><small>Also users, units & categories</small></span></label>
+          <label><input type="radio" name="role" value="staff" checked><span><b>Member</b><small>Sees all units, changes the ticked ones</small></span></label>
+          <label><input type="radio" name="role" value="admin"><span><b>Admin</b><small>All units, users, lists</small></span></label>
         </div>
       </fieldset>
+      <div id="aSites">${siteChecks([])}</div>
       <div class="err" id="aErr" role="alert"></div>
       <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit" id="aBtn">Add user</button></div>
     </form>`, p => {
     p.querySelector("#aPass").value = makePassword();
     p.querySelector("#aGen").addEventListener("click", () => p.querySelector("#aPass").value = makePassword());
     p.querySelector("#aHas").addEventListener("change", e => p.querySelector("#aPass").closest(".field").hidden = e.target.checked);
+    p.querySelectorAll("input[name=role]").forEach(r => r.addEventListener("change", () => p.querySelector("#aSites").hidden = r.value === "admin" && r.checked));
     p.querySelector("#aName").focus();
     p.querySelector("#fAdd").addEventListener("submit", async e => {
       e.preventDefault();
@@ -319,6 +341,7 @@ $("#addUser").addEventListener("click", () => {
       const name = p.querySelector("#aName").value.trim(), email = lc(p.querySelector("#aEmail").value);
       const pass = p.querySelector("#aPass").value, has = p.querySelector("#aHas").checked;
       const role = p.querySelector("input[name=role]:checked").value;
+      const picked = [...p.querySelectorAll("#aSites input[name=site]:checked")].map(x => x.value);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err.textContent = "Enter a valid email.";
       if (userList().some(u => u.email === email)) return err.textContent = `${email} is already on the list. Use Manage to change their access.`;
       if (!has && pass.length < 6) return err.textContent = "Password must be at least 6 characters.";
@@ -341,6 +364,7 @@ $("#addUser").addEventListener("click", () => {
       const ok = await saveAccess(a => {
         a.admins = a.admins.filter(x => x !== email); a.staff = a.staff.filter(x => x !== email);
         (role === "admin" ? a.admins : a.staff).push(email);
+        for (const d of DEFAULT_SITES) { a.managers[d.id] = a.managers[d.id].filter(x => x !== email); if (role !== "admin" && picked.includes(d.id)) a.managers[d.id].push(email); }
         a.people[email] = { name, addedAt: Date.now(), addedBy: me() };
         return a;
       });
@@ -374,11 +398,12 @@ $("#ulist").addEventListener("click", e => {
     </form>
     <fieldset class="qbox-wrap"><legend>Access</legend>
       <div class="radio-cards">
-        <label><input type="radio" name="mrole" value="staff" ${u.role === "staff" ? "checked" : ""} ${self ? "disabled" : ""}><span><b>Staff</b><small>Stock in / out, items</small></span></label>
-        <label><input type="radio" name="mrole" value="admin" ${u.role === "admin" ? "checked" : ""} ${self ? "disabled" : ""}><span><b>Admin</b><small>Also users, units & categories</small></span></label>
+        <label><input type="radio" name="mrole" value="staff" ${u.role === "staff" ? "checked" : ""} ${self ? "disabled" : ""}><span><b>Member</b><small>Sees all units, changes the ticked ones</small></span></label>
+        <label><input type="radio" name="mrole" value="admin" ${u.role === "admin" ? "checked" : ""} ${self ? "disabled" : ""}><span><b>Admin</b><small>All units, users, lists</small></span></label>
       </div>
       ${self ? `<p class="hint">You can't remove your own admin access.</p>` : ""}
     </fieldset>
+    <div id="mSites" ${u.role === "staff" ? "" : "hidden"}>${siteChecks(u.sites)}</div>
     <div class="field"><label>Password</label>
       <button class="btn" type="button" id="mReset">Email a password reset link</button>
       <p class="hint">They get an email from Firebase with a link to choose a new password.</p></div>
@@ -393,7 +418,13 @@ $("#ulist").addEventListener("click", e => {
       saveAccess(a => {
         a.admins = a.admins.filter(x => x !== u.email); a.staff = a.staff.filter(x => x !== u.email);
         (r.value === "admin" ? a.admins : a.staff).push(u.email); return a;
-      }, r.value === "admin" ? `${u.email} is now an admin` : `${u.email} is now staff`)));
+      }, r.value === "admin" ? `${u.email} is now an admin` : `${u.email} is now a member`).then(() => p.querySelector("#mSites").hidden = r.value === "admin")));
+    p.querySelector("#mSites").addEventListener("change", e => {
+      if (e.target.name !== "site") return;
+      const id = e.target.value, on = e.target.checked;
+      saveAccess(a => { a.managers[id] = a.managers[id].filter(x => x !== u.email); if (on) a.managers[id].push(u.email); return a; },
+        on ? `${u.name || u.email} can now change ${siteName(id)}` : `${u.name || u.email} can only view ${siteName(id)} now`);
+    });
     p.querySelector("#mReset").addEventListener("click", async ev => {
       const done = busy(ev.target, "Sending…");
       try { await sendPasswordResetEmail(auth, u.email); done(); toast(`Reset link sent to ${u.email}`); }
@@ -405,7 +436,7 @@ $("#ulist").addEventListener("click", e => {
         <p class="hint">You can add them back any time.</p>
         <div class="actions"><button class="btn" type="button" data-close>Keep</button><button class="btn danger solid" type="button" id="yesRm">Remove access</button></div>`,
       q2 => q2.querySelector("#yesRm").addEventListener("click", async () => {
-        const ok = await saveAccess(a => { a.admins = a.admins.filter(x => x !== u.email); a.staff = a.staff.filter(x => x !== u.email); delete a.people[u.email]; return a; }, `${u.email} removed`);
+        const ok = await saveAccess(a => { a.admins = a.admins.filter(x => x !== u.email); a.staff = a.staff.filter(x => x !== u.email); for (const d of DEFAULT_SITES) a.managers[d.id] = a.managers[d.id].filter(x => x !== u.email); delete a.people[u.email]; return a; }, `${u.email} removed`);
         if (ok) closeSheet();
       }));
     });
@@ -431,7 +462,7 @@ function renderUnits(){
   const q = ($("#iuQ")?.value || "").trim().toLowerCase();
   const packs = usedPlusList("packings");
   const units = usedPlusList("units");
-  const list = allItems.filter(it => !q || (it.name + " " + (it.category || "")).toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name));
+  const list = allItems.filter(it => !q || (it.name + " " + (it.category || "") + " " + siteName(it.site || "u1")).toLowerCase().includes(q)).sort((a, b) => (a.site || "u1").localeCompare(b.site || "u1") || a.name.localeCompare(b.name));
   if (!list.length) { box.innerHTML = `<div class="empty"><h3>${allItems.length ? "No items match" : "No items yet"}</h3></div>`; return; }
   box.innerHTML = list.map(it => {
     const m = mainOf(it), st = iuState[it.id] || { name: m.name, n: m.n, unit: it.unit || "pcs" };
@@ -439,7 +470,7 @@ function renderUnits(){
     const un = [...units]; if (!un.includes(st.unit)) un.push(st.unit);
     const dirty = !!iuState[it.id];
     return `<div class="iu-row ${dirty ? "dirty" : ""}" data-id="${it.id}">
-      <div class="iu-name"><b>${esc(it.name)}</b><small>${esc(it.category || "")} · ${+it.qty || 0} ${esc(it.unit || "pcs")} in stock</small></div>
+      <div class="iu-name"><b>${esc(it.name)}</b><small><b>${esc(siteName(it.site || "u1"))}</b> · ${esc(it.category || "")} · ${+it.qty || 0} ${esc(it.unit || "pcs")} in stock</small></div>
       <div class="iu-edit">
         <span class="one">1</span>
         <select data-f="name" aria-label="Main pack for ${esc(it.name)}"><option value="" ${st.name ? "" : "selected"}>No pack</option>${pk.map(x => `<option value="${esc(x)}" ${x === st.name ? "selected" : ""}>${esc(cap1(x))}</option>`).join("")}</select>
@@ -502,3 +533,28 @@ function deleteCategoryInUse(cat, rest, n){
     } catch (_) { b.disabled = false; b.textContent = "Delete and move"; p.querySelector("#dcErr").textContent = "Couldn't move the items. Try again."; }
   }));
 }
+
+
+/* ---------- unit names ---------- */
+function renderSites(){
+  const box = $("#sitesBox"); if (!box) return;
+  if (!isAdmin || !access) { box.hidden = true; return; }
+  box.hidden = false;
+  if (box.contains(document.activeElement)) return;
+  const count = id => allItems.filter(i => (i.site || "u1") === id).length;
+  const who = id => userList().filter(u => u.role === "staff" && u.sites.includes(id)).length;
+  box.innerHTML = `<div class="lhead"><h2>Units</h2><span class="hint">Everyone can see all units</span></div>
+    <form id="sitesForm" class="sites-form" novalidate>${sitesList().map(s => `<label class="site-name">
+      <input name="${s.id}" value="${esc(s.name)}" maxlength="30" aria-label="Name of ${esc(s.id)}">
+      <small class="hint">${count(s.id)} items · ${who(s.id)} member${who(s.id) === 1 ? "" : "s"} can change</small></label>`).join("")}
+      <button class="btn" type="submit">Save names</button></form>`;
+}
+document.addEventListener("submit", async e => {
+  if (e.target.id !== "sitesForm") return;
+  e.preventDefault();
+  const f = e.target, names = DEFAULT_SITES.map(d => ({ id: d.id, name: (f.elements[d.id].value || "").trim().replace(/\s+/g, " ") || d.name }));
+  if (new Set(names.map(n => n.name.toLowerCase())).size !== names.length) return toast("Give each unit a different name");
+  document.activeElement?.blur?.();
+  try { await setDoc(accessRef(), { sites: names, updatedAt: Date.now(), updatedBy: me() }, { merge: true }); toast("Unit names saved"); }
+  catch (ex) { toast(ex.code === "permission-denied" ? "Only admins can rename units." : "Couldn't save. Try again."); }
+});
