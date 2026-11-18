@@ -19,18 +19,24 @@ service cloud.firestore {
       return isAdmin() || listed("staff") || (request.auth != null && !exists(accessPath()));
     }
 
-    // ── UNITS ───────────────────────────────────────────────────────────
-    // Three units (u1, u2, u3), each with its own items. Everyone on the list can SEE all units.
-    // Admins can CHANGE every unit; other people only the units ticked for them on Admin → Users
-    // (settings/access.managers = { u1: [emails], u2: [...], u3: [...] }).
-    function siteOf(d) { return d.get("site", "u1"); }       // old items without a unit belong to Unit 1
-    function validSite(s) { return s in ["u1", "u2", "u3"]; }
+    // ── MAIN STOCK + UNITS ──────────────────────────────────────────────
+    // "main" = main stock (central store), u1 / u2 / u3 = the three units. Each has its own items.
+    // Everyone on the list can SEE all of them.
+    // OWNER and full admins: everything.  Per unit (set on Admin → Users → Manage):
+    //   settings/access.siteAdmins = { main: [emails], u1: [...], ... }  unit admin: stock + packing units + fixes
+    //   settings/access.managers   = { main: [emails], u1: [...], ... }  member: stock in / out, items
+    function siteOf(d) { return d.get("site", "main"); }     // old items without a unit belong to Main stock
+    function validSite(s) { return s in ["main", "u1", "u2", "u3"]; }
+    function inRole(key, s) {
+      return request.auth != null && exists(accessPath()) && key in get(accessPath()).data
+        && request.auth.token.email in get(accessPath()).data[key].get(s, []);
+    }
+    function siteAdmin(s) { return isAdmin() || inRole("siteAdmins", s); }
     function manages(s) {
-      return isAdmin()
+      return siteAdmin(s)
         || (request.auth != null && !exists(accessPath()))
-        || (exists(accessPath()) && "managers" in get(accessPath()).data
-            && request.auth.token.email in get(accessPath()).data.managers.get(s, []))
-        || (exists(accessPath()) && !("managers" in get(accessPath()).data) && s == "u1" && listed("staff"));
+        || inRole("managers", s)
+        || (exists(accessPath()) && !("managers" in get(accessPath()).data) && s == "main" && listed("staff"));
     }
 
     // ── STOCK ───────────────────────────────────────────────────────────
@@ -53,8 +59,9 @@ service cloud.firestore {
       allow create: if isMember() && validItem()
         && validSite(siteOf(request.resource.data)) && manages(siteOf(request.resource.data));
       allow update: if isMember() && validItem() && manages(siteOf(resource.data))
-        && siteOf(request.resource.data) == siteOf(resource.data)
-        && (isAdmin() || unitsUnchanged());
+        && (isAdmin() || siteOf(request.resource.data) == siteOf(resource.data))
+        && validSite(siteOf(request.resource.data))
+        && (siteAdmin(siteOf(resource.data)) || unitsUnchanged());
       allow delete: if isMember() && manages(siteOf(resource.data));
     }
 

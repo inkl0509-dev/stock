@@ -881,6 +881,9 @@ li.is-fix .what{color:var(--accent)}
 
 /* ---------- units (stores) ---------- */
 .sitebar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:4px 0 12px}
+.sitebar .site[data-site="main"]{grid-column:1 / -1;flex-direction:row;align-items:baseline;justify-content:space-between;gap:10px}
+.sitebar .site[data-site="main"] b{font-size:1rem}
+.sitebar .site-rename{grid-column:1 / -1;justify-self:end;font-size:.82rem;margin-top:-2px}
 .sitebar .site{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:9px 11px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;text-align:left;cursor:pointer;min-width:0}
 .sitebar .site b{font-size:.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .sitebar .site small{font-size:.72rem;color:var(--muted)}
@@ -909,3 +912,18 @@ body.readonly .empty-actions [data-act="addhere"], body.readonly .empty [data-ac
 .check-chip:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
 .umeta .can{font-size:.78rem;color:var(--accent)}
 .umeta .can.ro{color:var(--muted)}
+
+.seg.four{grid-template-columns:repeat(4,1fr)}
+.seg.four label{font-size:.86rem;padding-left:4px;padding-right:4px}
+.htile.t-send{background:var(--ok-soft);border-color:var(--ok);color:var(--ink)}
+.htile.t-send svg{color:var(--ok);transform:rotate(45deg)}
+body.readonly .htile.t-send{display:none!important}
+.move-items{margin-top:6px;border-top:1px solid var(--line);padding-top:10px}
+.move-items summary{cursor:pointer;font-weight:600;font-size:.9rem}
+.move-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+.move-row select{flex:1 1 140px;padding:9px;border:1px solid var(--line);border-radius:10px;font:inherit;background:var(--surface);color:var(--ink)}
+.site-roles{display:flex;flex-direction:column;gap:8px}
+.sr-row{display:grid;grid-template-columns:minmax(80px,1fr) 2.4fr;gap:8px;align-items:center}
+.sr-name{font-weight:600;font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sr-seg label{font-size:.8rem;padding:8px 4px}
+@media (max-width:420px){.sr-row{grid-template-columns:1fr}}

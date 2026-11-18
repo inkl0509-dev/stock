@@ -41,11 +41,12 @@ const LEGACY_CODES = [["barcode","pcs"],["barcodePkt","pkt"],["barcodeCtn","ctn"
 const PER_OPTS = [["pcs","Piece"],["pkt","Packet"],["ctn","Carton"],["n","Other qty"]];
 
 let items = [], moves = [], loaded = false;
-/* ---------- the three units (stores / outlets). Each has its own item list and stock. ---------- */
-const DEFAULT_SITES = [{ id: "u1", name: "Unit 1" }, { id: "u2", name: "Unit 2" }, { id: "u3", name: "Unit 3" }];
+/* ---------- Main stock + three units (outlets). Each has its own item list and stock.
+   Stock arrives in Main stock and is sent (transferred) to the units. ---------- */
+const DEFAULT_SITES = [{ id: "main", name: "Main stock" }, { id: "u1", name: "Unit 1" }, { id: "u2", name: "Unit 2" }, { id: "u3", name: "Unit 3" }];
 let allItems = [], allMoves = [], access = null, accessLoaded = false;
-let site = (() => { try { const v = localStorage.getItem("cs-site"); return DEFAULT_SITES.some(d => d.id === v) ? v : "u1"; } catch (_) { return "u1"; } })();
-const siteOf = x => x?.site || "u1";             // items and entries made before units existed belong to Unit 1
+let site = (() => { try { const v = localStorage.getItem("cs-site"); return DEFAULT_SITES.some(d => d.id === v) ? v : "main"; } catch (_) { return "main"; } })();
+const siteOf = x => x?.site || "main";           // items and entries made before units existed belong to Main stock
 function sitesList(){
   const s = Array.isArray(access?.sites) ? access.sites : [];
   return DEFAULT_SITES.map(d => ({ id: d.id, name: String(s.find(x => x.id === d.id)?.name || d.name) }));
@@ -55,8 +56,14 @@ const siteName = id => sitesList().find(s => s.id === id)?.name || id;
 function canEdit(s = site){
   if (amAdmin || !accessLoaded || !access) return true;    // no user list yet = setup mode, everyone can work
   const e = String(auth.currentUser?.email || "").toLowerCase();
+  if (access.siteAdmins?.[s]?.includes(e)) return true;
   if (access.managers) return !!access.managers[s]?.includes(e);
-  return s === "u1" && !!access.staff?.includes(e);         // before units were set up, staff worked in Unit 1
+  return s === "main" && !!access.staff?.includes(e);       // before units were set up, staff worked in the main stock
+}
+/* admin of one unit: may also change item packing units, and fix anyone's entries there */
+function isSiteAdmin(s = site){
+  if (amAdmin) return true;
+  return !!access?.siteAdmins?.[s]?.includes(String(auth.currentUser?.email || "").toLowerCase());
 }
 function guardEdit(s = site){
   if (canEdit(s)) return true;
@@ -65,7 +72,9 @@ function guardEdit(s = site){
 }
 function refilter(){
   items = allItems.filter(i => siteOf(i) === site);
-  moves = allMoves.filter(m => siteOf(m) === site);
+  // an entry belongs to the unit its item is in now (so moving an item to another unit takes its history along)
+  const where = new Map(allItems.map(i => [i.id, siteOf(i)]));
+  moves = allMoves.filter(m => (where.get(m.itemId) || siteOf(m)) === site);
   document.body.classList.toggle("readonly", !canEdit());
 }
 function switchSite(id){
@@ -83,9 +92,9 @@ function renderSiteBar(){
     return `<button type="button" class="site ${s.id === site ? "on" : ""} ${ro ? "ro" : ""}" data-site="${s.id}" aria-pressed="${s.id === site}">
       <b>${esc(s.name)}${ro ? ` <span class="lock" title="View only" aria-label="View only">👁</span>` : ""}</b>
       <small>${its.length} item${its.length === 1 ? "" : "s"}${low ? ` · <span class="lowc">${low} low</span>` : ""}</small></button>`;
-  }).join("");
+  }).join("") + (amAdmin ? `<button type="button" class="link site-rename" id="siteRename">✎ Rename</button>` : "");
   const ro = $("#roNote"); if (ro) { ro.hidden = canEdit(); ro.innerHTML = `<b>View only.</b> You can see ${esc(siteName(site))} but not change it.`; }
-  if ($("#role")) { const r = amAdmin ? "Admin" : canEdit() ? "Can edit" : "View only"; $("#role").textContent = r; $("#role").className = "role " + (amAdmin ? "admin" : canEdit() ? "staff" : "viewer"); }
+  if ($("#role")) { const r = amAdmin ? (isAdminEmail(myEmail()) ? "Owner" : "Full admin") : isSiteAdmin() ? "Unit admin" : canEdit() ? "Member" : "View only"; $("#role").textContent = r; $("#role").className = "role " + (isSiteAdmin() ? "admin" : canEdit() ? "staff" : "viewer"); }
 }
 let unsubs = [];
 const ui = { q:"", cat:"", sort:"attention" };   // cat "" = nothing chosen: show search + recent items only
@@ -261,7 +270,7 @@ function showConfigHelp(code){
 if (configMissing) showConfigHelp();
 
 $("#outBtn").addEventListener("click", () => {
-  const role = amAdmin ? "Admin" : "Member";
+  const role = amAdmin ? "Admin" : isSiteAdmin() ? "Unit admin" : "Member";
   openSheet(`<h3>Sign out?</h3><p>Signed in as <b>${esc(auth.currentUser?.email)}</b> <span class="pill ${role === "Admin" ? "admin" : "staff"}">${role}</span></p>
     <p class="hint">${role === "Admin" ? "You can manage users, units and lists on the Admin page." : `You can see all units. You can change: ${esc(sitesList().filter(x => canEdit(x.id)).map(x => x.name).join(", ") || "none (view only)")}.`} You'll need your email and password to sign back in.</p>
     <div class="actions"><button class="btn" type="button" data-close>Stay signed in</button><button class="btn primary" type="button" id="yesOut">Sign out</button></div>`,
@@ -367,7 +376,7 @@ function writeErr(e){
   toast(e?.code === "permission-denied" ? "You don't have permission to change stock." : "Couldn't save. Try again.");
   throw e;
 }
-const putItem    = it => { const { id, ...body } = it; if (!body.site) body.site = "u1"; return chain("i/"+id, () => setDoc(doc(db,"items",id), body)).catch(writeErr); };
+const putItem    = it => { const { id, ...body } = it; if (!body.site) body.site = "main"; return chain("i/"+id, () => setDoc(doc(db,"items",id), body)).catch(writeErr); };
 const removeItem = id => chain("i/"+id, () => deleteDoc(doc(db,"items",id))).catch(writeErr);
 const addMove    = m  => { const { id, ...body } = m; if (!body.site) body.site = siteOf(allItems.find(i => i.id === m.itemId)); return setDoc(doc(db,"moves",id), body).catch(writeErr); };
 
@@ -522,7 +531,7 @@ const CORRECTABLE = ["received", "used", "issued", "broken"];
 const fixesFor = id => moves.filter(x => x.fixOf === id).sort((a, b) => a.at - b.at);
 function effQty(m){ const f = fixesFor(m.id); return f.length ? r3(f[f.length - 1].fixQty) : +m.qty || 0; }
 const myEmail = () => String(auth.currentUser?.email || "").toLowerCase();
-const canCorrect = m => CORRECTABLE.includes(m.type) && !m.xfer && canEdit(siteOf(m)) && (amAdmin || String(m.by || "").toLowerCase() === myEmail());
+const canCorrect = m => CORRECTABLE.includes(m.type) && !m.xfer && canEdit(siteOf(m)) && (isSiteAdmin(siteOf(m)) || String(m.by || "").toLowerCase() === myEmail());
 
 function deltaText(m){
   if (CORRECTABLE.includes(m.type) && fixesFor(m.id).length) {
@@ -905,7 +914,7 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
         <div class="field"><label for="fCat">Category</label><select id="fCat" data-list="categories" data-word="category">${options(withCurrent(lists.categories, it.category), it.category)}${NEW_OPT}</select></div>
         <div class="field"><label for="fPlace">Kept at <span class="opt">optional</span></label><input id="fPlace" maxlength="60" value="${esc(it.place||"")}" placeholder="e.g. Bar shelf B" list="placesList" autocomplete="off">${datalist("placesList", lists.places)}</div>
       </div>
-      ${sizeFields(it, { locked: !isNew && !amAdmin })}
+      ${sizeFields(it, { locked: !isNew && !isSiteAdmin(siteOf(it)) })}
       <div class="add-new-row" id="fNewRow" hidden>
         <input id="fNewVal" maxlength="40" autocomplete="off" aria-label="New entry">
         <button class="btn sm primary" type="button" id="fNewAdd">Add</button>
@@ -961,7 +970,7 @@ function itemForm(it, preset, { layer = 1, onSaved = null } = {}){
     };
     const packing = wirePacking(p, unitNow, () => { qb?.redraw(); minHint(); });
     p.querySelector("#fUnit").addEventListener("change", packing.update);
-    const lockedUnits = !isNew && !amAdmin;
+    const lockedUnits = !isNew && !isSiteAdmin(siteOf(it));
     p.querySelector("#fMin").addEventListener("input", minHint);
     p.querySelector("#fPicks")?.addEventListener("click", e => {
       const c = e.target.closest("[data-name]"); if (!c) return;
@@ -1061,7 +1070,7 @@ function itemDetail(id, { code = null } = {}){
       <button class="btn act in" type="button" data-quick="in"><span aria-hidden="true">↓</span>Stock in</button>
       <button class="btn act out" type="button" data-quick="out"><span aria-hidden="true">↑</span>Stock out</button>
     </div>
-    ${canEdit(siteOf(it)) && sitesList().some(x => x.id !== siteOf(it) && canEdit(x.id)) ? `<button class="btn xfer-btn" type="button" id="xferBtn">⇄ Transfer to another unit</button>` : ""}
+    ${canEdit(siteOf(it)) && sitesList().some(x => x.id !== siteOf(it) && canEdit(x.id)) ? `<button class="btn xfer-btn" type="button" id="xferBtn">⇄ ${siteOf(it) === "main" ? "Send to a unit" : "Transfer to another unit"}</button>` : ""}
     <p class="hint"><b>${esc(siteName(siteOf(it)))}</b> · ${esc(it.category)} · warn at ${+it.min||0} ${esc(U(it))}${it.place ? ` · kept at ${esc(it.place)}` : ""}${s.pp||s.pc ? `<br>${esc(sizeText(s, U(it)))}` : ""}</p>
     <div class="codes">${codes.map(c => `<span class="code" title="${esc(c.code)}">${BARCODE_ICON}${esc(shortCode(c.code))} <small>${esc(codeLabel(c, it))}${c.brand ? ` · ${esc(c.brand)}` : ""}</small></span>`).join("")}
       <button type="button" class="btn sm scan-btn" id="addCodeBtn">${BARCODE_ICON}<span>${codes.length ? "Add another barcode" : "Add barcode"}</span></button>
@@ -1123,7 +1132,7 @@ function quickEntry(it, mode = "in", { code = null } = {}){
         <input id="qNum" type="number" inputmode="numeric" min="0" step="1" value="1" aria-label="How many">
         <button type="button" class="step big" data-q="1" aria-label="One more">+</button>
       </div>
-      <div class="qe-lab qe-lab-row"><span>Counted in</span>${amAdmin ? `<button type="button" class="link" id="qPack">${mainPack(it) ? "Change units" : "Comes in cartons or boxes? Set units"}</button>` : ""}</div>
+      <div class="qe-lab qe-lab-row"><span>Counted in</span>${isSiteAdmin(siteOf(it)) ? `<button type="button" class="link" id="qPack">${mainPack(it) ? "Change units" : "Comes in cartons or boxes? Set units"}</button>` : ""}</div>
       <div class="qe-methods" role="radiogroup" aria-label="Counted in">
         ${methods.map(m => `<input type="radio" name="qMeth" id="qx-${m.id}" value="${m.id}" ${m.id===method.id?"checked":""}><label for="qx-${m.id}"><b>${esc(m.label)}</b>${m.n > 1 ? `<small>${m.n} ${esc(u)}${m.brand ? ` · ${esc(m.brand)}` : ""}</small>` : ""}</label>`).join("")}
       </div>
@@ -1352,11 +1361,13 @@ function itemOptions(sel){
 }
 
 let lineSeq = 0;
-function openCart(mode = "in", { itemId = null, per = null, scan = false } = {}){
+function openCart(mode = "in", { itemId = null, per = null, scan = false, outType = null } = {}){
   if (!guardEdit()) return;
+  const SEND = { label: "Send", help: "Send stock to another unit. Scan or search each item, choose the unit, then save.", party: ["To unit", "", ""] };
+  const types = sendTargets().length ? (site === "main" ? { xfer: SEND, ...OUT_TYPES } : { ...OUT_TYPES, xfer: SEND }) : OUT_TYPES;
   if (!items.length && !scan) { toast("Add an item first."); return itemForm(); }
   closeSheet(2, true);
-  cart = { mode, outType: "used", lines: [] };
+  cart = { mode, outType: outType && types[outType] ? outType : Object.keys(types)[0], lines: [] };
   const pn = openSheet(`
     <div class="cart-head">
       <h3 id="cartTitle"></h3>
@@ -1364,8 +1375,8 @@ function openCart(mode = "in", { itemId = null, per = null, scan = false } = {})
         <input type="radio" name="cMode" id="cm-in" value="in" ${mode==="in"?"checked":""}><label for="cm-in" class="in">↓ Stock in</label>
         <input type="radio" name="cMode" id="cm-out" value="out" ${mode==="out"?"checked":""}><label for="cm-out" class="out">↑ Stock out</label>
       </div>
-      <div class="seg three" id="outTypes" role="radiogroup" aria-label="Type of stock out">
-        ${Object.entries(OUT_TYPES).map(([k, t], i) => `<input type="radio" name="cOut" id="co-${k}" value="${k}" ${i===0?"checked":""}><label for="co-${k}" class="${k}">${t.label}</label>`).join("")}
+      <div class="seg ${Object.keys(types).length === 4 ? "four" : "three"}" id="outTypes" role="radiogroup" aria-label="Type of stock out">
+        ${Object.entries(types).map(([k, t]) => `<input type="radio" name="cOut" id="co-${k}" value="${k}" ${k === cart.outType ? "checked" : ""}><label for="co-${k}" class="${k}">${t.label}</label>`).join("")}
       </div>
       <p class="hint" id="cartHelp"></p>
       <div class="finder">
@@ -1395,10 +1406,18 @@ function openCart(mode = "in", { itemId = null, per = null, scan = false } = {})
   cart.p = pn;
 
   const kind = () => cart.mode === "in" ? "received" : cart.outType;
-  const partyCfg = () => cart.mode === "in" ? ["Supplier", "suppliers", "e.g. ABC Crockery Traders"] : OUT_TYPES[cart.outType].party;
+  const partyCfg = () => cart.mode === "in" ? ["Supplier", "suppliers", "e.g. ABC Crockery Traders"] : types[cart.outType].party;
+  const sending = () => cart.mode === "out" && cart.outType === "xfer";
 
   const drawParty = () => {
-    const [label, key, ph] = partyCfg(), arr = lists[key] || [], box = pn.querySelector("#cPartyBox");
+    const box = pn.querySelector("#cPartyBox");
+    if (sending()) {
+      const dests = sendTargets(), keep = box.querySelector("input[name=cTo]:checked")?.value || dests[0].id;
+      box.innerHTML = `<label>Send to</label><div class="seg ${dests.length > 2 ? "three" : dests.length === 2 ? "two" : "one"}" role="radiogroup" aria-label="Send to">
+        ${dests.map(x => `<input type="radio" name="cTo" id="ct-${x.id}" value="${x.id}" ${x.id === keep ? "checked" : ""}><label for="ct-${x.id}">${esc(x.name)}</label>`).join("")}</div>`;
+      return;
+    }
+    const [label, key, ph] = partyCfg(), arr = lists[key] || [];
     const keep = box.querySelector("input")?.value || "";
     box.innerHTML = `<label for="cParty">${label} <span class="opt">optional</span></label>
       <input id="cParty" maxlength="60" list="cPartyList" autocomplete="off" placeholder="${esc(ph)}" value="${esc(keep)}">${datalist("cPartyList", arr)}
@@ -1406,9 +1425,9 @@ function openCart(mode = "in", { itemId = null, per = null, scan = false } = {})
   };
   const drawMode = () => {
     pn.classList.toggle("is-out", cart.mode === "out");
-    pn.querySelector("#cartTitle").textContent = cart.mode === "in" ? "Stock in" : "Stock out";
+    pn.querySelector("#cartTitle").textContent = cart.mode === "in" ? `Stock in · ${siteName(site)}` : sending() ? `Send from ${siteName(site)}` : `Stock out · ${siteName(site)}`;
     pn.querySelector("#outTypes").hidden = cart.mode !== "out";
-    pn.querySelector("#cartHelp").textContent = cart.mode === "in" ? "New stock arrived. Scan or search each item, then enter how many cartons, boxes or pieces came." : OUT_TYPES[cart.outType].help;
+    pn.querySelector("#cartHelp").textContent = cart.mode === "in" ? "New stock arrived. Scan or search each item, then enter how many cartons, boxes or pieces came." : types[cart.outType].help;
     drawParty();
     cart.lines.forEach(l => l.qb.refresh());
     updateFoot();
@@ -1421,7 +1440,7 @@ function openCart(mode = "in", { itemId = null, per = null, scan = false } = {})
       : "No items yet";
     const save = pn.querySelector("#cSave");
     save.disabled = !active.length;
-    save.textContent = cart.mode === "in" ? `Save stock in${active.length ? ` (${active.length})` : ""}` : `Save ${OUT_TYPES[cart.outType].label.toLowerCase()}${active.length ? ` (${active.length})` : ""}`;
+    save.textContent = cart.mode === "in" ? `Save stock in${active.length ? ` (${active.length})` : ""}` : sending() ? `Send${active.length ? ` (${active.length})` : ""}` : `Save ${types[cart.outType].label.toLowerCase()}${active.length ? ` (${active.length})` : ""}`;
     pn.querySelector("#cLines").querySelector(".cart-empty")?.remove();
     if (!cart.lines.length) pn.querySelector("#cLines").innerHTML = `<div class="cart-empty">${BARCODE_ICON}<p><b>Scan a barcode</b> or search above to add items.</p><p class="hint">With a handheld scanner, just scan. Items are added automatically.</p></div>`;
   };
@@ -1442,7 +1461,7 @@ function openCart(mode = "in", { itemId = null, per = null, scan = false } = {})
       pn.querySelector("#cLines").prepend(el);
       line = { id: it.id, el };
       const live = () => items.find(x => x.id === it.id) || it, u = U(it);
-      const packLink = () => { const mp = mainPack(live()), lk = el.querySelector(".pack-link"); lk.hidden = !amAdmin; lk.textContent = mp ? `1 ${mp.name} = ${mp.n} ${U(live())} · change` : "Comes in cartons or boxes? Set units"; };
+      const packLink = () => { const mp = mainPack(live()), lk = el.querySelector(".pack-link"); lk.hidden = !isSiteAdmin(siteOf(live())); lk.textContent = mp ? `1 ${mp.name} = ${mp.n} ${U(live())} · change` : "Comes in cartons or boxes? Set units"; };
       line.qb = qtyBox(el.querySelector(".qbox"), () => sizes(live()), 0, t => {
         const s = sizes(live());
         const cur = shown(live()), out = cart && cart.mode === "out";
@@ -1555,6 +1574,17 @@ function openCart(mode = "in", { itemId = null, per = null, scan = false } = {})
       if (over) return err.textContent = `Only ${shown(over[0])} ${U(over[0])} of ${over[0].name} in stock.`;
     }
     const party = pn.querySelector("#cParty")?.value.trim() || "", note = pn.querySelector("#cNote").value.trim();
+    if (type === "xfer") {
+      const to = pn.querySelector("input[name=cTo]:checked")?.value; if (!to) return err.textContent = "Choose the unit to send to.";
+      const bad = active.map(l => items.find(x => x.id === l.id)).find(it => { const d = matchIn(it, to); return d && U(d) !== U(it); });
+      if (bad) return err.textContent = `${siteName(to)} counts ${bad.name} in a different unit. Ask an admin to fix it first.`;
+      const lines = active.map(l => [items.find(x => x.id === l.id), l.qb.total()]), batch = uid("x");
+      closeSheet(1, true);
+      let ok = 0;
+      for (const [it, n] of lines) { try { await commitNudge(it.id); await doTransfer(it, n, to, note, batch); ok++; } catch (_) {} }
+      toast(ok ? `Sent ${plural(ok, "item", "items")} to ${siteName(to)}` : "Nothing was sent. Try again.");
+      return;
+    }
     const batch = uid("b"), done = [], label = type === "received" ? "Stock in" : OUT_TYPES[type].label;
     const totals = active.map(l => [l.id, l.qb.total()]);
     closeSheet(1, true);
@@ -1963,6 +1993,7 @@ function renderHome(){
   el.innerHTML =
     t("t-in", "in", "Stock in", "Delivery arrived", 'data-cart="in"') +
     t("t-out", "out", "Stock out", "Use · issue · breakage", 'data-cart="out"') +
+    (site === "main" && canEdit() && sendTargets().length ? t("t-send", "out", "Send to unit", sitesList().filter(x => x.id !== "main").map(x => x.name).join(" · "), 'data-send="1"') : "") +
     t("t-scan", "scan", "Scan", "Find by barcode", "data-scanfind") +
     t("t-count", "count", "Daily count", fast.length ? `${counted} of ${fast.length} counted today` : "Count what's left", 'data-go="count"', fast.length - counted) +
     t("t-quick", "quick", "Quick use", fast.length ? "Tap when one is taken" : "For water & fast items", 'data-go="quick"') +
@@ -1975,6 +2006,7 @@ function renderHome(){
 $("#tiles").addEventListener("click", e => {
   const b = e.target.closest(".htile"); if (!b || b.tagName === "A") return;
   if (b.dataset.cart) return openCart(b.dataset.cart);
+  if (b.dataset.send) return openCart("out", { outType: "xfer" });
   if (b.hasAttribute("data-scanfind")) return scanToFind();
   if (b.dataset.view) return go(b.dataset.view, { cat: b.dataset.cat || "" });
   if (b.dataset.go === "count") return dailyCount();
@@ -2443,7 +2475,28 @@ function barcodeLabel(it, { code = null } = {}){
 }
 
 /* ================= units: switch, transfer ================= */
-$("#siteBar")?.addEventListener("click", e => { const b = e.target.closest("[data-site]"); if (b) switchSite(b.dataset.site); });
+$("#siteBar")?.addEventListener("click", e => {
+  if (e.target.closest("#siteRename")) return renameSites();
+  const b = e.target.closest("[data-site]"); if (b) switchSite(b.dataset.site);
+});
+/* admins: change the names of Main stock and the units */
+function renameSites(){
+  if (!amAdmin) return;
+  openSheet(`<h3>Unit names</h3>
+    <p class="hint">Everyone sees the new names straight away. The stock in each unit stays the same.</p>
+    <form id="snForm" novalidate>
+      ${sitesList().map(x => `<div class="field"><label for="sn-${x.id}">${x.id === "main" ? "Main stock (central store)" : "Unit " + x.id.slice(1)}</label>
+        <input id="sn-${x.id}" name="${x.id}" maxlength="30" value="${esc(x.name)}" autocomplete="off"></div>`).join("")}
+      <div class="err" id="snErr" role="alert"></div>
+      <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit">Save names</button></div>
+    </form>`, p => p.querySelector("#snForm").addEventListener("submit", async e => {
+      e.preventDefault();
+      const names = DEFAULT_SITES.map(d => ({ id: d.id, name: (e.target.elements[d.id].value || "").trim().replace(/\s+/g, " ") || d.name }));
+      if (new Set(names.map(n => n.name.toLowerCase())).size !== names.length) return p.querySelector("#snErr").textContent = "Give each one a different name.";
+      try { await setDoc(doc(db, "settings", "access"), { sites: names, updatedAt: Date.now() }, { merge: true }); closeSheet(1, true); toast("Names saved"); }
+      catch (ex) { p.querySelector("#snErr").textContent = ex?.code === "permission-denied" ? "Only admins can rename. Publish the new firestore.rules." : "Couldn't save. Try again."; }
+    }));
+}
 
 /* the same product in another unit: same barcode, or the same name */
 function matchIn(it, s){
@@ -2453,12 +2506,28 @@ function matchIn(it, s){
   return inSite.find(x => codes.length && codesOf(x).some(c => codes.includes(normCode(c.code))))
       || inSite.find(x => x.name.trim().toLowerCase() === name) || null;
 }
+/* move n of an item to another unit: out here, in there (the item is added there if it's missing) */
+async function doTransfer(it, n, to, note, batch){
+  const from = siteOf(it);
+  let d = matchIn(it, to);
+  if (d && U(d) !== U(it)) throw new Error(`${siteName(to)} counts ${d.name} in ${U(d)}`);
+  if (!d) {
+    const { id, qty, site: _s, createdAt, updatedAt, place, ...rest } = stripLegacy(it);
+    d = { ...rest, codes: codesOf(it), id: uid("i"), site: to, qty: 0, createdAt: Date.now(), updatedAt: Date.now() };
+    allItems.push(d);
+    await putItem(d);
+  }
+  const r = await applyMove(it.id, "issued", n, note, { party: siteName(to), batch, extra: { xfer: to } });
+  await applyMove(d.id, "received", n, note, { party: siteName(from), batch, extra: { xfer: from } });
+  return r;
+}
+function sendTargets(){ return sitesList().filter(x => x.id !== site && canEdit(x.id)); }
 function transferSheet(it){
   const from = siteOf(it);
   if (!guardEdit(from)) return;
   const dests = sitesList().filter(x => x.id !== from && canEdit(x.id));
   if (!dests.length) return toast("You can only transfer to a unit you manage.");
-  openSheet(`<h3>Transfer · ${esc(it.name)}</h3>
+  openSheet(`<h3>${from === "main" ? "Send to a unit" : "Transfer"} · ${esc(it.name)}</h3>
     <p class="hint">From <b>${esc(siteName(from))}</b> · ${shown(it)} ${esc(U(it))} in stock</p>
     <div class="field"><label>To</label>
       <div class="seg ${dests.length > 1 ? "two" : "one"}" role="radiogroup" aria-label="Transfer to">
@@ -2489,15 +2558,7 @@ function transferSheet(it){
       if (d && U(d) !== U(it)) return err.textContent = "The units are different in the other unit.";
       const go = p.querySelector("#xGo"); go.disabled = true; go.textContent = "Moving…";
       try {
-        if (!d) {
-          const { id, qty, site: _s, createdAt, updatedAt, place, ...rest } = stripLegacy(it);
-          d = { ...rest, codes: codesOf(it), id: uid("i"), site: to, qty: 0, createdAt: Date.now(), updatedAt: Date.now() };
-          allItems.push(d);
-          await putItem(d);
-        }
-        const batch = uid("x");
-        await applyMove(it.id, "issued", n, note, { party: siteName(to), batch, extra: { xfer: to } });
-        await applyMove(d.id, "received", n, note, { party: siteName(from), batch, extra: { xfer: from } });
+        await doTransfer(it, n, to, note, uid("x"));
         closeSheet(2, true);
         toast(`Moved ${n} ${U(it)} of ${it.name} to ${siteName(to)}`);
         itemDetail(it.id);

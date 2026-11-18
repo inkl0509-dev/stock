@@ -65,23 +65,31 @@ installs like an app, and keeps working offline.
     categories, storage places, suppliers, outlets (issued to) and breakage reasons
 
 
-## Three units (stores / outlets)
+## Main stock + three units
 
-The app holds **three units** (e.g. Main Store, Cafe, Banquet). Each unit has its **own item list, stock and history**.
-Tap a unit at the top of the screen to switch.
+The app has a **Main stock** (central store) and **three units** (e.g. Cafe, Bar, Banquet). Each has its **own item
+list, stock and history**. Tap one at the top of the screen to switch.
 
-- **Everyone on the user list can see all three units.**
-- **Admins** (and the owner) can change every unit.
-- **Members** can change only the units an admin ticks for them: Admin → Users → **Manage** → *Can change stock in*.
-  In other units they see the stock but the Stock in / Stock out buttons are hidden (👁 = view only).
-- **Rename units:** Admin → Users → **Units** card → type the names → **Save names**.
-- **Transfer:** open an item → **⇄ Transfer to another unit**. Stock goes out of this unit and into the other one in one
-  step. If the other unit doesn't have the item yet, it's added there with the same name, units and barcodes.
-  (You need to be able to change both units.)
-- Stock entered before this update belongs to the first unit. People who were staff can still change the first unit.
+- **New stock arrives in Main stock** (Stock in), then you **send it to the units**:
+  - Home → **Send to unit**: scan or search several items, choose the unit, tap **Send**.
+  - Or open one item → **⇄ Send to a unit**.
+  - If the unit doesn't have the item yet, it's added there with the same name, packing units and barcodes.
+  - Units can also send stock back to Main stock or to another unit.
+- **Rename:** tap **✎ Rename** under the unit buttons (owner/full admins), or Admin → Users → *Main stock & units*.
 
-> **Important:** publish the new `firestore.rules` in Firebase (Firestore Database → Rules → paste → Publish).
-> The rules make sure members can only change their own units.
+### Who can do what
+- **Owner** (the email in `admins.js` and `firestore.rules`): all access, always.
+- **Full admin**: all access, like the owner (every unit, users, lists).
+- **Per unit** – for Main stock and each unit separately, choose on Admin → Users → **Manage**:
+  - **Admin** of that unit: stock in / out, send, items, packing units (1 carton = 24 …), delete / merge, fix anyone's entries there.
+  - **Member** of that unit: stock in / out, send, add items.
+  - **View only**: can look but not change.
+- Everyone on the user list can **see** the main stock and all units.
+- Old stock (entered before units existed) is in **Main stock**. If it ended up in Unit 1, use
+  Admin → Users → *Main stock & units* → **Move all items from one to another**.
+
+> **Important:** publish the new `firestore.rules` in Firebase (Firestore Database → Rules → paste → Publish),
+> then open the Admin page once with the owner account.
 
 ## Files
 
